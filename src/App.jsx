@@ -1,10 +1,6 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useGeminiLive } from './hooks/useGeminiLive';
-import { generatePDF } from './report';
 
-const PHASES = ['fase-1', 'fase-2', 'fase-3', 'report'];
-
-// Trigger nascosto: fa pronunciare all'agente il messaggio di apertura per primo.
 const KICKOFF = 'Inizia ora la conversazione con il tuo messaggio di apertura.';
 
 const INTERVIEW_PROMPT = `Sei un intervistatore AI. Conduci una conversazione vocale per esplorare come la persona usa l'intelligenza artificiale nel lavoro e nella vita quotidiana in generale.
@@ -33,281 +29,271 @@ TEMI DA ESPLORARE (segui il filo del discorso, non come lista rigida):
 OBIETTIVO:
 Far emergere esperienze concrete ed esempi reali. Fai domande di approfondimento ("puoi farmi un esempio?", "come mai?"). Ascolta più di quanto parli.`;
 
-const BASE_CONFIG = {
+const SETUP = {
   responseModalities: ['AUDIO'],
-  speechConfig: {
-    voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } },
-  },
+  speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } },
   inputAudioTranscription: {},
   outputAudioTranscription: {},
-  // Interviste 10-30 min: finestra scorrevole -> niente cap di lunghezza sessione.
   contextWindowCompression: { slidingWindow: {} },
-  // Abilita handle di ripresa (il proxy li usa per riconnettere su drop di rete).
   sessionResumption: {},
+  systemInstruction: { parts: [{ text: INTERVIEW_PROMPT }] },
 };
 
-const PHASE_CONFIGS = {
-  'fase-1': {
-    label: 'Fase 1 — Connessione Base',
-    description: 'Verifica connessione, audio bidirezionale, latenza. Parla liberamente.',
-    setup: BASE_CONFIG,
-  },
-  'fase-2': {
-    label: 'Fase 2 — Prompt Specifico',
-    description: 'Agente con persona e istruzioni definite.',
-    setup: {
-      ...BASE_CONFIG,
-      systemInstruction: {
-        parts: [{ text: '' }],
-      },
-    },
-    promptEditable: true,
-  },
-  'fase-3': {
-    label: 'Fase 3 — Knowledge Base',
-    description: 'Agente con prompt + knowledge base iniettata come contesto.',
-    setup: {
-      ...BASE_CONFIG,
-      systemInstruction: {
-        parts: [{ text: '' }],
-      },
-    },
-    promptEditable: true,
-    kbEditable: true,
-  },
+const C = {
+  ink: 'var(--ink)', muted: 'var(--muted)', faint: 'var(--faint)',
+  indigo: 'var(--indigo)', indigoDk: 'var(--indigo-dk)', lime: 'var(--lime)',
+  bg: 'var(--bg)', lav: 'var(--lav)', border: 'var(--border)', navy: 'var(--navy)', white: 'var(--white)',
 };
 
-function StatusBadge({ status }) {
-  const colors = {
-    idle: '#555',
-    connecting: '#f90',
-    connected: '#0c0',
-    error: '#f44',
-  };
+function Wordmark() {
   return (
-    <span style={{ background: colors[status] || '#555', color: '#fff', borderRadius: 4, padding: '2px 8px', fontSize: 12, fontWeight: 700 }}>
-      {status.toUpperCase()}
-    </span>
-  );
-}
-
-function RawLog({ log }) {
-  const ref = useRef(null);
-  return (
-    <div style={{ background: '#111', borderRadius: 6, padding: 8, maxHeight: 200, overflowY: 'auto', fontSize: 11, fontFamily: 'monospace' }} ref={ref}>
-      {log.length === 0 && <div style={{ color: '#555' }}>nessun messaggio</div>}
-      {log.map((l, i) => (
-        <div key={i} style={{ color: l.dir === '→' ? '#7bf' : '#bfb', marginBottom: 2, wordBreak: 'break-all' }}>
-          <span style={{ opacity: 0.5 }}>{new Date(l.ts).toISOString().slice(11, 23)} </span>
-          <strong>{l.dir} </strong>
-          {l.text.slice(0, 400)}{l.text.length > 400 ? '…' : ''}
-        </div>
-      ))}
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div style={{
+        width: 30, height: 30, borderRadius: 9, background: C.indigo,
+        display: 'grid', placeItems: 'center', color: '#fff', fontWeight: 800, fontSize: 17,
+        boxShadow: '0 4px 12px rgba(84,81,208,0.35)',
+      }}>t</div>
+      <span style={{ fontSize: 19, fontWeight: 800, letterSpacing: '-0.02em' }}>tacita</span>
+      <span style={{
+        fontSize: 11, fontWeight: 700, color: C.indigoDk, background: C.lav,
+        padding: '2px 8px', borderRadius: 999, marginLeft: 2,
+      }}>DEMO</span>
     </div>
   );
 }
 
-function Transcript({ transcript }) {
+function Step({ n, title, children }) {
   return (
-    <div style={{ background: '#1a1a1a', borderRadius: 6, padding: 8, maxHeight: 160, overflowY: 'auto', fontSize: 13 }}>
-      {transcript.length === 0 && <div style={{ color: '#555' }}>nessuna trascrizione</div>}
-      {transcript.map((t, i) => (
-        <div key={i} style={{ marginBottom: 6, color: t.role === 'model' ? '#bfb' : '#7bf' }}>
-          <strong>{t.role === 'model' ? 'Gemini' : 'Tu'}: </strong>{t.text}
-        </div>
-      ))}
+    <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+      <div style={{
+        flex: '0 0 auto', width: 28, height: 28, borderRadius: '50%',
+        background: C.indigo, color: '#fff', fontWeight: 700, fontSize: 14,
+        display: 'grid', placeItems: 'center',
+      }}>{n}</div>
+      <div>
+        <div style={{ fontWeight: 700, fontSize: 15 }}>{title}</div>
+        <div style={{ color: C.muted, fontSize: 14 }}>{children}</div>
+      </div>
     </div>
   );
 }
 
-function PhasePanel({ phaseKey, notes, onNotesChange }) {
-  const cfg = PHASE_CONFIGS[phaseKey];
-  const { status, transcript, rawLog, error, connect, disconnect, sendText } = useGeminiLive();
-  const [prompt, setPrompt] = useState(INTERVIEW_PROMPT);
-  const [kb, setKb] = useState('');
-  const [textInput, setTextInput] = useState('');
-
-  const buildSetup = () => {
-    const base = JSON.parse(JSON.stringify(cfg.setup));
-    if (cfg.promptEditable) {
-      let instruction = prompt;
-      if (cfg.kbEditable && kb.trim()) {
-        instruction += `\n\n--- KNOWLEDGE BASE ---\n${kb}`;
-      }
-      base.systemInstruction = { parts: [{ text: instruction }] };
-    }
-    return base;
-  };
-
+function Pill({ children }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <StatusBadge status={status} />
-        {error && <span style={{ color: '#f66', fontSize: 12 }}>{error}</span>}
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600,
+      color: C.indigoDk, background: C.lav, padding: '6px 12px', borderRadius: 999,
+    }}>{children}</span>
+  );
+}
+
+function Intro({ onStart }) {
+  return (
+    <div className="fade-up" style={{ maxWidth: 720, margin: '0 auto', padding: '28px 20px 56px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>
+        <Wordmark />
       </div>
 
-      <p style={{ color: '#aaa', fontSize: 13, margin: 0 }}>{cfg.description}</p>
-
-      {cfg.promptEditable && (
-        <div>
-          <label style={{ fontSize: 12, color: '#888', display: 'block', marginBottom: 4 }}>System prompt</label>
-          <textarea
-            value={prompt}
-            onChange={e => setPrompt(e.target.value)}
-            rows={3}
-            style={{ width: '100%', background: '#1a1a1a', color: '#eee', border: '1px solid #333', borderRadius: 4, padding: 6, fontSize: 12, resize: 'vertical', boxSizing: 'border-box' }}
-          />
+      <div style={{
+        background: C.white, border: `1px solid ${C.border}`, borderRadius: 24,
+        padding: 'clamp(24px, 4vw, 40px)', boxShadow: '0 18px 50px -24px rgba(21,25,39,0.25)',
+      }}>
+        <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: '0.12em', color: C.indigo, marginBottom: 12 }}>
+          TEST · INTERVISTA VOCALE AI
         </div>
-      )}
+        <h1 style={{ fontSize: 'clamp(26px, 5vw, 36px)', lineHeight: 1.12, letterSpacing: '-0.02em', marginBottom: 14 }}>
+          Parla con un intervistatore AI
+        </h1>
+        <p style={{ fontSize: 16.5, color: C.muted, marginBottom: 22 }}>
+          Stiamo testando un <strong style={{ color: C.ink }}>intervistatore vocale basato su intelligenza artificiale</strong>.
+          Ti farà qualche domanda — a voce, in italiano — su <strong style={{ color: C.ink }}>come usi l'AI nel
+          lavoro e nella vita di tutti i giorni</strong>. È una chiacchierata naturale: rispondi come ti viene,
+          non ci sono risposte giuste o sbagliate.
+        </p>
 
-      {cfg.kbEditable && (
-        <div>
-          <label style={{ fontSize: 12, color: '#888', display: 'block', marginBottom: 4 }}>Knowledge Base (testo libero)</label>
-          <textarea
-            value={kb}
-            onChange={e => setKb(e.target.value)}
-            rows={5}
-            placeholder="Incolla qui il testo della knowledge base…"
-            style={{ width: '100%', background: '#1a1a1a', color: '#eee', border: '1px solid #333', borderRadius: 4, padding: 6, fontSize: 12, resize: 'vertical', boxSizing: 'border-box' }}
-          />
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 26 }}>
+          <Pill>⏱️ 10–30 minuti</Pill>
+          <Pill>🎙️ Serve il microfono</Pill>
+          <Pill>🎧 Cuffie consigliate</Pill>
+          <Pill>🇮🇹 In italiano</Pill>
         </div>
-      )}
 
-      <div style={{ display: 'flex', gap: 8 }}>
-        {status === 'idle' || status === 'error' ? (
-          <button onClick={() => connect(buildSetup(), cfg.promptEditable ? KICKOFF : null)} style={btnStyle('#2a5')}>
-            Avvia sessione
-          </button>
-        ) : (
-          <button onClick={disconnect} style={btnStyle('#a33')}>
-            Ferma sessione
-          </button>
+        <div style={{ fontWeight: 800, fontSize: 13, letterSpacing: '0.06em', color: C.faint, marginBottom: 14 }}>
+          COME FUNZIONA
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginBottom: 26 }}>
+          <Step n={1} title="Avvia e consenti il microfono">
+            Premi “Inizia l'intervista”. Il browser ti chiederà l'accesso al microfono: premi <strong>Consenti</strong>.
+          </Step>
+          <Step n={2} title="Lascia parlare per primo l'intervistatore">
+            Dopo qualche secondo l'AI ti saluterà e farà la prima domanda. Aspetta che finisca, poi rispondi a voce.
+          </Step>
+          <Step n={3} title="Conversa come al telefono">
+            Parla in modo naturale, una persona alla volta. Puoi <strong>interromperlo</strong> mentre parla, proprio
+            come in una telefonata. Se preferisci, puoi anche scrivere nel riquadro di testo.
+          </Step>
+          <Step n={4} title="Chiudi quando vuoi">
+            Quando hai finito premi “Termina intervista”. Vedrai la trascrizione man mano che parlate.
+          </Step>
+        </div>
+
+        <div style={{
+          background: C.lav, borderRadius: 14, padding: '14px 16px', fontSize: 13.5, color: C.muted, marginBottom: 26,
+        }}>
+          🔒 <strong style={{ color: C.ink }}>Privacy:</strong> è un test. La voce viene elaborata su server in
+          Unione Europea. Per favore <strong style={{ color: C.ink }}>non condividere dati personali sensibili</strong>
+          {' '}(tuoi o altrui): nomi di clienti, dati riservati, ecc. Parla pure liberamente del tuo modo di usare l'AI.
+        </div>
+
+        <button onClick={onStart} style={{
+          width: '100%', padding: '16px 22px', borderRadius: 14, background: C.indigo, color: '#fff',
+          fontSize: 17, fontWeight: 700, boxShadow: '0 12px 26px -10px rgba(84,81,208,0.6)',
+          transition: 'transform .08s ease',
+        }}
+          onMouseDown={e => e.currentTarget.style.transform = 'scale(0.99)'}
+          onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
+          onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
+        >
+          🎙️ Inizia l'intervista
+        </button>
+        <div style={{ textAlign: 'center', fontSize: 12.5, color: C.faint, marginTop: 12 }}>
+          Al primo avvio può servire qualche secondo per attivarsi. Funziona meglio su Chrome.
+        </div>
+      </div>
+
+      <div style={{ textAlign: 'center', fontSize: 12.5, color: C.faint, marginTop: 22 }}>
+        Demo Tacita · voce elaborata in UE (Google Vertex AI, europe-west1)
+      </div>
+    </div>
+  );
+}
+
+function StatusLine({ status }) {
+  const map = {
+    connecting: { dots: true, text: 'Sto preparando l\'intervista…', color: C.indigo },
+    connected:  { dots: false, text: 'In ascolto — parla pure', color: '#1a7a3c' },
+    error:      { dots: false, text: 'Si è verificato un problema', color: '#b3261e' },
+    idle:       { dots: false, text: 'Intervista terminata', color: C.faint },
+  };
+  const s = map[status] || map.idle;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'center', color: s.color, fontWeight: 600 }}>
+      {status === 'connected' && (
+        <span style={{ width: 9, height: 9, borderRadius: '50%', background: '#1a7a3c', display: 'inline-block' }} />
+      )}
+      <span>{s.text}</span>
+      {s.dots && <span><span className="dot" /><span className="dot" /><span className="dot" /></span>}
+    </div>
+  );
+}
+
+function Interview({ onExit }) {
+  const { status, transcript, error, connect, disconnect, sendText } = useGeminiLive();
+  const [text, setText] = useState('');
+  const scrollRef = useRef(null);
+  const started = useRef(false);
+
+  useEffect(() => {
+    if (!started.current) {
+      started.current = true;
+      connect(SETUP, KICKOFF);
+    }
+  }, [connect]);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+  }, [transcript]);
+
+  const stop = () => { disconnect(); onExit(); };
+
+  return (
+    <div className="fade-up" style={{ maxWidth: 720, margin: '0 auto', padding: '24px 20px 40px', minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+        <Wordmark />
+        <button onClick={stop} style={{
+          padding: '9px 16px', borderRadius: 10, background: '#fff', border: `1px solid ${C.border}`,
+          color: '#b3261e', fontWeight: 700, fontSize: 13.5,
+        }}>Termina intervista</button>
+      </div>
+
+      <div style={{
+        background: C.navy, borderRadius: 20, padding: '26px 20px', textAlign: 'center', marginBottom: 16,
+        color: '#fff',
+      }}>
+        <div style={{
+          width: 92, height: 92, borderRadius: '50%', margin: '0 auto 16px',
+          background: 'linear-gradient(135deg, #6c69e6, #403cb8)',
+          display: 'grid', placeItems: 'center', fontSize: 38,
+          animation: status === 'connected' ? 'pulse 2s infinite' : 'none',
+        }}>🎙️</div>
+        <div style={{ filter: 'invert(0)' }}>
+          <StatusLine status={status} />
+        </div>
+        {status === 'connected' && (
+          <div style={{ fontSize: 13, color: '#aeb4c8', marginTop: 10 }}>
+            Puoi interromperlo mentre parla. Una persona alla volta.
+          </div>
+        )}
+        {status === 'error' && error && (
+          <div style={{ fontSize: 13, color: '#ffb4ac', marginTop: 10 }}>{error}</div>
         )}
       </div>
 
-      {status === 'connected' && (
-        <div style={{ display: 'flex', gap: 6 }}>
-          <input
-            value={textInput}
-            onChange={e => setTextInput(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') { sendText(textInput); setTextInput(''); } }}
-            placeholder="Invia messaggio testo (oppure parla)…"
-            style={{ flex: 1, background: '#1a1a1a', color: '#eee', border: '1px solid #333', borderRadius: 4, padding: '6px 8px', fontSize: 13 }}
-          />
-          <button onClick={() => { sendText(textInput); setTextInput(''); }} style={btnStyle('#246')}>Invia</button>
-        </div>
-      )}
-
-      <div>
-        <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>Trascrizione</div>
-        <Transcript transcript={transcript} />
-      </div>
-
-      <div>
-        <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>Log messaggi WebSocket</div>
-        <RawLog log={rawLog} />
-      </div>
-
-      <div>
-        <label style={{ fontSize: 12, color: '#888', display: 'block', marginBottom: 4 }}>Note per il report</label>
-        <textarea
-          value={notes}
-          onChange={e => onNotesChange(e.target.value)}
-          rows={4}
-          placeholder="Osservazioni, problemi, latenza, qualità audio…"
-          style={{ width: '100%', background: '#1a1a1a', color: '#eee', border: '1px solid #333', borderRadius: 4, padding: 6, fontSize: 12, resize: 'vertical', boxSizing: 'border-box' }}
-        />
-      </div>
-    </div>
-  );
-}
-
-function ReportPanel({ notes }) {
-  const [exporting, setExporting] = useState(false);
-
-  const handleExport = async () => {
-    setExporting(true);
-    try {
-      await generatePDF(notes);
-    } finally {
-      setExporting(false);
-    }
-  };
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <p style={{ color: '#aaa', fontSize: 13, margin: 0 }}>
-        Completa le note nelle 3 fasi, poi genera il PDF di analisi comparativa Gemini Live API vs ElevenLabs.
-      </p>
-
-      {['fase-1', 'fase-2', 'fase-3'].map(k => (
-        <div key={k} style={{ background: '#1a1a1a', borderRadius: 6, padding: 12 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#7bf', marginBottom: 6 }}>{PHASE_CONFIGS[k].label}</div>
-          <div style={{ fontSize: 13, color: '#ccc', whiteSpace: 'pre-wrap', minHeight: 40 }}>
-            {notes[k] || <span style={{ color: '#555' }}>Nessuna nota</span>}
+      <div ref={scrollRef} style={{
+        flex: 1, minHeight: 220, background: '#fff', border: `1px solid ${C.border}`, borderRadius: 16,
+        padding: 16, overflowY: 'auto', marginBottom: 14,
+      }}>
+        {transcript.length === 0 ? (
+          <div style={{ color: C.faint, fontSize: 14, textAlign: 'center', padding: '40px 10px' }}>
+            La trascrizione comparirà qui mentre parlate.
           </div>
-        </div>
-      ))}
+        ) : transcript.map((t, i) => {
+          const me = t.role === 'user';
+          return (
+            <div key={i} style={{ display: 'flex', justifyContent: me ? 'flex-end' : 'flex-start', marginBottom: 10 }}>
+              <div style={{
+                maxWidth: '82%', padding: '9px 13px', borderRadius: 14, fontSize: 14.5,
+                background: me ? C.indigo : C.lav, color: me ? '#fff' : C.ink,
+                borderBottomRightRadius: me ? 4 : 14, borderBottomLeftRadius: me ? 14 : 4,
+              }}>
+                <div style={{ fontSize: 11, fontWeight: 700, opacity: .7, marginBottom: 2 }}>
+                  {me ? 'Tu' : 'Intervistatore'}
+                </div>
+                {t.text}
+              </div>
+            </div>
+          );
+        })}
+      </div>
 
-      <button onClick={handleExport} disabled={exporting} style={btnStyle('#46a')}>
-        {exporting ? 'Generazione…' : 'Esporta PDF'}
-      </button>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input
+          value={text}
+          onChange={e => setText(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && text.trim()) { sendText(text); setText(''); } }}
+          placeholder="Oppure scrivi qui (facoltativo)…"
+          disabled={status !== 'connected'}
+          style={{
+            flex: 1, padding: '12px 14px', borderRadius: 12, border: `1px solid ${C.border}`,
+            fontSize: 14.5, background: status === 'connected' ? '#fff' : '#f2f3f7', color: C.ink, outline: 'none',
+          }}
+        />
+        <button
+          onClick={() => { if (text.trim()) { sendText(text); setText(''); } }}
+          disabled={status !== 'connected' || !text.trim()}
+          style={{
+            padding: '12px 20px', borderRadius: 12, background: C.indigo, color: '#fff', fontWeight: 700,
+            fontSize: 14.5, opacity: (status === 'connected' && text.trim()) ? 1 : 0.5,
+          }}
+        >Invia</button>
+      </div>
     </div>
   );
 }
-
-const btnStyle = (bg) => ({
-  background: bg,
-  color: '#fff',
-  border: 'none',
-  borderRadius: 4,
-  padding: '8px 16px',
-  cursor: 'pointer',
-  fontSize: 13,
-  fontWeight: 600,
-});
 
 export default function App() {
-  const [phase, setPhase] = useState('fase-1');
-  const [notes, setNotes] = useState({ 'fase-1': '', 'fase-2': '', 'fase-3': '' });
-
-  const setNote = (k) => (v) => setNotes(prev => ({ ...prev, [k]: v }));
-
-  return (
-    <div style={{ minHeight: '100vh', background: '#0d0d0d', color: '#eee', fontFamily: 'system-ui, sans-serif' }}>
-      <div style={{ maxWidth: 860, margin: '0 auto', padding: 24 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>Gemini 2.5 Flash — Live API Test</h1>
-        <p style={{ color: '#666', fontSize: 13, marginBottom: 24 }}>Test comparativo vs ElevenLabs</p>
-
-        <div style={{ display: 'flex', gap: 0, marginBottom: 24, borderBottom: '1px solid #333' }}>
-          {PHASES.map(p => (
-            <button
-              key={p}
-              onClick={() => setPhase(p)}
-              style={{
-                background: 'none',
-                border: 'none',
-                borderBottom: p === phase ? '2px solid #7bf' : '2px solid transparent',
-                color: p === phase ? '#7bf' : '#888',
-                padding: '8px 16px',
-                cursor: 'pointer',
-                fontSize: 13,
-                fontWeight: p === phase ? 700 : 400,
-                marginBottom: -1,
-              }}
-            >
-              {p === 'report' ? 'Report PDF' : PHASE_CONFIGS[p]?.label.split(' — ')[0]}
-            </button>
-          ))}
-        </div>
-
-        <div>
-          {phase === 'report'
-            ? <ReportPanel notes={notes} />
-            : <PhasePanel key={phase} phaseKey={phase} notes={notes[phase]} onNotesChange={setNote(phase)} />
-          }
-        </div>
-      </div>
-    </div>
-  );
+  const [view, setView] = useState('intro');
+  return view === 'intro'
+    ? <Intro onStart={() => setView('interview')} />
+    : <Interview onExit={() => setView('intro')} />;
 }
