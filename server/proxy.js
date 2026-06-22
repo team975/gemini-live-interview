@@ -188,6 +188,12 @@ wss.on('connection', (client) => {
       }
       if (msg.client_content) {
         const cc = msg.client_content;
+        // cattura testo digitato (escludi il kickoff nascosto)
+        const txt = (cc.turns || []).map(t => (t.parts || []).map(p => p.text).join(' ')).join(' ').trim();
+        if (txt && txt !== 'Inizia ora la conversazione con il tuo messaggio di apertura.') {
+          flushTurn();
+          turns.push({ role: 'user', text: txt });
+        }
         if (session) session.sendClientContent({ turns: cc.turns, turnComplete: cc.turn_complete ?? true });
         return;
       }
