@@ -1,0 +1,16 @@
+name: keepalive
+# Tiene sveglio il servizio Render free (dorme dopo 15 min di inattività).
+on:
+  schedule:
+    - cron: '*/10 * * * *'   # ogni 10 minuti
+  workflow_dispatch: {}        # avvio manuale
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping /health
+        run: |
+          curl -fsS --max-time 60 https://gemini-live-interview.onrender.com/health \
+            && echo " — awake $(date -u)" \
+            || echo "ping failed (cold start o servizio giù)"

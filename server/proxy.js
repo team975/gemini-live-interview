@@ -72,6 +72,35 @@ wss.on('connection', (client) => {
   let reconnecting = false;
   const micQueue = [];         // audio mic arrivato durante il gap di reconnect
 
+  // --- Cattura trascrizione lato server (robusta anche se il browser si chiude) ---
+  const turns = [];
+  let curUser = '', curModel = '';
+  const startedAt = new Date().toISOString();
+  const sessionId = 'iv_' + Math.random().toString(36).slice(2, 10);
+  let saved = false;
+
+  const flushTurn = () => {
+    if (curUser.trim()) turns.push({ role: 'user', text: curUser.trim() });
+    if (curModel.trim()) turns.push({ role: 'model', text: curModel.trim() });
+    curUser = ''; curModel = '';
+  };
+
+  const saveTranscript = async () => {
+    if (saved) return;
+    saved = true;
+    flushTurn();
+    if (!turns.length) return;
+    const payload = { sessionId, startedAt, endedAt: new Date().toISOString(), turnCount: turns.length, turns };
+    const url = process.env.TRANSCRIPT_WEBHOOK;
+    if (!url) { console.log('[proxy] transcript (no webhook):', JSON.stringify(payload).slice(0, 600)); return; }
+    try {
+      const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      console.log('[proxy] transcript inviata', sessionId, 'turni', turns.length, 'http', r.status);
+    } catch (e) {
+      console.error('[proxy] save transcript err:', e.message);
+    }
+  };
+
   // Apre/riapre la sessione Live. Con handle = ripresa trasparente (browser non se ne accorge).
   const openSession = async (resumeHandle) => {
     const cfg = { ...(setupCfg || {}) };
@@ -99,6 +128,13 @@ wss.on('connection', (client) => {
           onmessage: (serverMsg) => {
             const sr = serverMsg.sessionResumptionUpdate || serverMsg.session_resumption_update;
             if (sr?.newHandle || sr?.new_handle) lastHandle = sr.newHandle || sr.new_handle;
+            // cattura trascrizione
+            const sc = serverMsg.serverContent;
+            if (sc) {
+              if (sc.inputTranscription?.text) curUser += sc.inputTranscription.text;
+              if (sc.outputTranscription?.text) curModel += sc.outputTranscription.text;
+              if (sc.turnComplete) flushTurn();
+            }
             // setupComplete dopo il primo (incluso sui resume): non rinviarlo al client
             const isSetup = serverMsg.setupComplete !== undefined || serverMsg.setup_complete !== undefined;
             if (isSetup) {
@@ -176,12 +212,14 @@ wss.on('connection', (client) => {
   client.on('close', () => {
     console.log('[proxy] client disconnected');
     clientClosed = true;
+    saveTranscript();
     try { session?.close(); } catch {}
   });
 
   client.on('error', (err) => {
     console.error('[proxy] client error:', err.message);
     clientClosed = true;
+    saveTranscript();
     try { session?.close(); } catch {}
   });
 });
