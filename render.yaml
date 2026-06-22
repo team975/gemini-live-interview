@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: gemini-live-interview
+    runtime: node
+    region: frankfurt        # UE
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: node server/proxy.js
+    healthCheckPath: /health
+    envVars:
+      - key: VERTEX_PROJECT_ID
+        value: eastern-map-380616
+      - key: VERTEX_LOCATION
+        value: europe-west1
+      - key: VERTEX_MODEL
+        value: gemini-live-2.5-flash-native-audio
+      - key: GOOGLE_SA_JSON
+        sync: false          # segreto: incollalo nella dashboard Render
