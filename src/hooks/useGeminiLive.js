@@ -23,8 +23,29 @@ export function useGeminiLive() {
     setRawLog(prev => [...prev, { dir, text, ts: Date.now() }].slice(-100));
   }, []);
 
+  // bolla "chiusa" (testo digitato, già completo)
   const addTx = useCallback((role, text) => {
-    setTx(prev => [...prev, { role, text, ts: Date.now() }]);
+    setTx(prev => [...prev, { role, text, done: true, ts: Date.now() }]);
+  }, []);
+
+  // delta di trascrizione in streaming: accoda alla bolla APERTA dello stesso ruolo,
+  // così le parole non finiscono ognuna su una riga separata.
+  const addTxDelta = useCallback((role, delta) => {
+    if (!delta) return;
+    setTx(prev => {
+      const last = prev[prev.length - 1];
+      if (last && last.role === role && !last.done) {
+        const copy = prev.slice();
+        copy[copy.length - 1] = { ...last, text: last.text + delta };
+        return copy;
+      }
+      return [...prev, { role, text: delta, done: false, ts: Date.now() }];
+    });
+  }, []);
+
+  // turno finito (o barge-in): chiudi le bolle aperte -> il prossimo parlato apre bolla nuova.
+  const finalizeTurn = useCallback(() => {
+    setTx(prev => prev.some(e => !e.done) ? prev.map(e => (e.done ? e : { ...e, done: true })) : prev);
   }, []);
 
   const playPCM = useCallback((b64) => {
@@ -163,22 +184,25 @@ export function useGeminiLive() {
         const content = data.serverContent || data.server_content;
         if (content) {
           // BARGE-IN: il server segnala che l'utente ha interrotto
-          if (content.interrupted) stopPlayback();
+          if (content.interrupted) { stopPlayback(); finalizeTurn(); }
 
           // trascrizioni live (native-audio non manda testo nei parts)
           const it = content.inputTranscription || content.input_transcription;
-          if (it?.text) addTx('user', it.text);
+          if (it?.text) addTxDelta('user', it.text);
           const ot = content.outputTranscription || content.output_transcription;
-          if (ot?.text) addTx('model', ot.text);
+          if (ot?.text) addTxDelta('model', ot.text);
 
           const parts = content.modelTurn?.parts || content.model_turn?.parts || [];
           for (const p of parts) {
-            if (p.text) addTx('model', p.text);
+            if (p.text) addTxDelta('model', p.text);
             const id = p.inlineData || p.inline_data;
             if (id?.mimeType?.startsWith('audio/pcm') || id?.mime_type?.startsWith('audio/pcm')) {
               playPCM(id.data);
             }
           }
+
+          // fine turno: chiudi le bolle aperte
+          if (content.turnComplete || content.turn_complete) finalizeTurn();
         }
       };
 
@@ -196,7 +220,7 @@ export function useGeminiLive() {
       setError(err.message);
       setS('error');
     }
-  }, [addLog, addTx, playPCM, startMicFromStream, stopMic, stopPlayback]);
+  }, [addLog, addTxDelta, finalizeTurn, playPCM, startMicFromStream, stopMic, stopPlayback]);
 
   const disconnect = useCallback(() => {
     wsRef.current?.close();
