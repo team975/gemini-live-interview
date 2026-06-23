@@ -3,7 +3,9 @@ import { useGeminiLive } from './hooks/useGeminiLive';
 
 const KICKOFF = 'Inizia ora la conversazione con il tuo messaggio di apertura.';
 
-const INTERVIEW_PROMPT = `Sei un intervistatore AI. Conduci una conversazione vocale per esplorare come la persona usa l'intelligenza artificiale nel lavoro e nella vita quotidiana in generale.
+// Brief di default (persona + obiettivo + apertura). Editabile a inizio sessione:
+// quando cambia la KB, qui si cambia anche scopo e frase d'apertura.
+const DEFAULT_BRIEF = `Sei un intervistatore AI. Conduci una conversazione vocale per esplorare come la persona usa l'intelligenza artificiale nel lavoro e nella vita quotidiana in generale.
 
 REGOLA SUL PRIMO MESSAGGIO (vincolante):
 Il tuo primissimo turno parlato deve essere ESATTAMENTE, parola per parola, questo:
@@ -34,8 +36,8 @@ Hai a disposizione lo strumento "cerca_kb" che interroga una knowledge base spec
 
 // Costruisce il setup Live in base alla modalità. Live è mono-modalità per sessione:
 // voce -> AUDIO (+ trascrizione + voce); testo -> TEXT (niente audio).
-function buildSetup(mode, hasKB) {
-  const sys = INTERVIEW_PROMPT + (hasKB ? '\n\n' + KB_INSTRUCTION : '');
+function buildSetup(mode, hasKB, brief) {
+  const sys = (brief?.trim() || DEFAULT_BRIEF) + (hasKB ? '\n\n' + KB_INSTRUCTION : '');
   const common = {
     systemInstruction: { parts: [{ text: sys }] },
     contextWindowCompression: { slidingWindow: {} },
@@ -117,6 +119,7 @@ function ModeCard({ active, onClick, icon, title, desc }) {
 function Intro({ onStart }) {
   const [mode, setMode] = useState('voice');
   const [kb, setKb] = useState('');
+  const [brief, setBrief] = useState(DEFAULT_BRIEF);
   const fileRef = useRef(null);
 
   const onFile = async (e) => {
@@ -223,7 +226,32 @@ function Intro({ onStart }) {
           )}
         </div>
 
-        <button onClick={() => onStart(mode, kb)} style={{
+        <details style={{ marginBottom: 26 }}>
+          <summary style={{
+            fontWeight: 800, fontSize: 13, letterSpacing: '0.06em', color: C.faint, cursor: 'pointer', marginBottom: 8,
+          }}>
+            BRIEF INTERVISTA <span style={{ fontWeight: 600, textTransform: 'none', letterSpacing: 0 }}>(persona, obiettivo, frase d'apertura — modifica per scenario)</span>
+          </summary>
+          <div style={{ fontSize: 13.5, color: C.muted, margin: '8px 0 10px' }}>
+            Definisce chi è l'intervistatore, cosa vuole scoprire e come apre. Cambialo quando cambi knowledge base,
+            così scopo e apertura restano coerenti. La KB invece resta solo nel riquadro sopra (l'AI la consulta al volo).
+          </div>
+          <textarea
+            value={brief}
+            onChange={e => setBrief(e.target.value)}
+            rows={10}
+            style={{
+              width: '100%', padding: '12px 14px', borderRadius: 12, border: `1px solid ${C.border}`,
+              fontSize: 13.5, fontFamily: 'inherit', resize: 'vertical', outline: 'none', color: C.ink,
+            }}
+          />
+          <button onClick={() => setBrief(DEFAULT_BRIEF)} style={{
+            marginTop: 8, padding: '6px 12px', borderRadius: 9, background: '#fff', border: `1px solid ${C.border}`,
+            color: C.indigoDk, fontWeight: 700, fontSize: 12.5,
+          }}>↺ Ripristina default</button>
+        </details>
+
+        <button onClick={() => onStart(mode, kb, brief)} style={{
           width: '100%', padding: '16px 22px', borderRadius: 14, background: C.indigo, color: '#fff',
           fontSize: 17, fontWeight: 700, boxShadow: '0 12px 26px -10px rgba(84,81,208,0.6)',
           transition: 'transform .08s ease',
@@ -265,7 +293,7 @@ function StatusLine({ status, mode }) {
   );
 }
 
-function Interview({ mode, kb, onExit }) {
+function Interview({ mode, kb, brief, onExit }) {
   const { status, transcript, error, connect, disconnect, sendText } = useGeminiLive();
   const [text, setText] = useState('');
   const scrollRef = useRef(null);
@@ -276,9 +304,9 @@ function Interview({ mode, kb, onExit }) {
   useEffect(() => {
     if (!started.current) {
       started.current = true;
-      connect({ setup: buildSetup(mode, !!(kb || '').trim()), kickoff: KICKOFF, mode, kb });
+      connect({ setup: buildSetup(mode, !!(kb || '').trim(), brief), kickoff: KICKOFF, mode, kb });
     }
-  }, [connect, mode, kb]);
+  }, [connect, mode, kb, brief]);
 
   useEffect(() => {
     if (isText && status === 'connected') inputRef.current?.focus();
@@ -381,6 +409,6 @@ function Interview({ mode, kb, onExit }) {
 export default function App() {
   const [cfg, setCfg] = useState(null); // null = schermata intro
   return !cfg
-    ? <Intro onStart={(mode, kb) => setCfg({ mode, kb })} />
-    : <Interview mode={cfg.mode} kb={cfg.kb} onExit={() => setCfg(null)} />;
+    ? <Intro onStart={(mode, kb, brief) => setCfg({ mode, kb, brief })} />
+    : <Interview mode={cfg.mode} kb={cfg.kb} brief={cfg.brief} onExit={() => setCfg(null)} />;
 }
