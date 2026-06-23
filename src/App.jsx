@@ -29,15 +29,27 @@ TEMI DA ESPLORARE (segui il filo del discorso, non come lista rigida):
 OBIETTIVO:
 Far emergere esperienze concrete ed esempi reali. Fai domande di approfondimento ("puoi farmi un esempio?", "come mai?"). Ascolta più di quanto parli.`;
 
-const SETUP = {
-  responseModalities: ['AUDIO'],
-  speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } },
-  inputAudioTranscription: {},
-  outputAudioTranscription: {},
-  contextWindowCompression: { slidingWindow: {} },
-  sessionResumption: {},
-  systemInstruction: { parts: [{ text: INTERVIEW_PROMPT }] },
-};
+const KB_INSTRUCTION = `KNOWLEDGE BASE:
+Hai a disposizione lo strumento "cerca_kb" che interroga una knowledge base specifica fornita per questa intervista. Usalo PRIMA di porre domande o fare affermazioni su fatti specifici (azienda, prodotto, persona, contesto): cerca l'argomento, poi formula la domanda ancorata a ciò che emerge. Non inventare dettagli che non risultano dalla knowledge base; se qualcosa non c'è, chiedilo alla persona.`;
+
+// Costruisce il setup Live in base alla modalità. Live è mono-modalità per sessione:
+// voce -> AUDIO (+ trascrizione + voce); testo -> TEXT (niente audio).
+function buildSetup(mode, hasKB) {
+  const sys = INTERVIEW_PROMPT + (hasKB ? '\n\n' + KB_INSTRUCTION : '');
+  const common = {
+    systemInstruction: { parts: [{ text: sys }] },
+    contextWindowCompression: { slidingWindow: {} },
+    sessionResumption: {},
+  };
+  if (mode === 'text') return { ...common, responseModalities: ['TEXT'] };
+  return {
+    ...common,
+    responseModalities: ['AUDIO'],
+    speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } },
+    inputAudioTranscription: {},
+    outputAudioTranscription: {},
+  };
+}
 
 const C = {
   ink: 'var(--ink)', muted: 'var(--muted)', faint: 'var(--faint)',
@@ -87,7 +99,32 @@ function Pill({ children }) {
   );
 }
 
+function ModeCard({ active, onClick, icon, title, desc }) {
+  return (
+    <button onClick={onClick} style={{
+      flex: 1, textAlign: 'left', padding: '14px 16px', borderRadius: 14, cursor: 'pointer',
+      border: `2px solid ${active ? C.indigo : C.border}`,
+      background: active ? C.lav : '#fff',
+      boxShadow: active ? '0 6px 18px -10px rgba(84,81,208,0.5)' : 'none',
+    }}>
+      <div style={{ fontSize: 22, marginBottom: 4 }}>{icon}</div>
+      <div style={{ fontWeight: 700, fontSize: 15, color: active ? C.indigoDk : C.ink }}>{title}</div>
+      <div style={{ fontSize: 12.5, color: C.muted, marginTop: 2 }}>{desc}</div>
+    </button>
+  );
+}
+
 function Intro({ onStart }) {
+  const [mode, setMode] = useState('voice');
+  const [kb, setKb] = useState('');
+  const fileRef = useRef(null);
+
+  const onFile = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    try { setKb(await f.text()); } catch {}
+  };
+
   return (
     <div className="fade-up" style={{ maxWidth: 720, margin: '0 auto', padding: '28px 20px 56px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>
@@ -145,7 +182,48 @@ function Intro({ onStart }) {
           {' '}(tuoi o altrui): nomi di clienti, dati riservati, ecc. Parla pure liberamente del tuo modo di usare l'AI.
         </div>
 
-        <button onClick={onStart} style={{
+        <div style={{ fontWeight: 800, fontSize: 13, letterSpacing: '0.06em', color: C.faint, marginBottom: 12 }}>
+          MODALITÀ
+        </div>
+        <div style={{ display: 'flex', gap: 10, marginBottom: 22 }}>
+          <ModeCard active={mode === 'voice'} onClick={() => setMode('voice')}
+            icon="🎙️" title="Voce" desc="Parli e ascolti. Serve il microfono." />
+          <ModeCard active={mode === 'text'} onClick={() => setMode('text')}
+            icon="⌨️" title="Testo" desc="Scrivi e leggi. Niente audio." />
+        </div>
+
+        <div style={{ fontWeight: 800, fontSize: 13, letterSpacing: '0.06em', color: C.faint, marginBottom: 8 }}>
+          KNOWLEDGE BASE <span style={{ fontWeight: 600, textTransform: 'none', letterSpacing: 0 }}>(facoltativa)</span>
+        </div>
+        <div style={{ fontSize: 13.5, color: C.muted, marginBottom: 10 }}>
+          Incolla qui il contesto su cui l'intervistatore deve basarsi (azienda, prodotto, persona…).
+          Lo userà per ancorare le domande ai fatti reali.
+        </div>
+        <textarea
+          value={kb}
+          onChange={e => setKb(e.target.value)}
+          placeholder="Incolla qui la knowledge base… (oppure carica un file)"
+          rows={5}
+          style={{
+            width: '100%', padding: '12px 14px', borderRadius: 12, border: `1px solid ${C.border}`,
+            fontSize: 14, fontFamily: 'inherit', resize: 'vertical', outline: 'none', color: C.ink, marginBottom: 10,
+          }}
+        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 26 }}>
+          <input ref={fileRef} type="file" accept=".txt,.md,.markdown,text/plain" onChange={onFile} style={{ display: 'none' }} />
+          <button onClick={() => fileRef.current?.click()} style={{
+            padding: '8px 14px', borderRadius: 10, background: '#fff', border: `1px solid ${C.border}`,
+            color: C.indigoDk, fontWeight: 700, fontSize: 13,
+          }}>📎 Carica file (.txt/.md)</button>
+          {kb.trim() && (
+            <span style={{ fontSize: 12.5, color: C.muted }}>
+              {kb.length.toLocaleString('it-IT')} caratteri · <button onClick={() => setKb('')}
+                style={{ color: '#b3261e', fontWeight: 700, background: 'none', padding: 0 }}>rimuovi</button>
+            </span>
+          )}
+        </div>
+
+        <button onClick={() => onStart(mode, kb)} style={{
           width: '100%', padding: '16px 22px', borderRadius: 14, background: C.indigo, color: '#fff',
           fontSize: 17, fontWeight: 700, boxShadow: '0 12px 26px -10px rgba(84,81,208,0.6)',
           transition: 'transform .08s ease',
@@ -154,7 +232,7 @@ function Intro({ onStart }) {
           onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
           onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
         >
-          🎙️ Inizia l'intervista
+          {mode === 'voice' ? "🎙️ Inizia l'intervista (voce)" : "⌨️ Inizia l'intervista (testo)"}
         </button>
         <div style={{ textAlign: 'center', fontSize: 12.5, color: C.faint, marginTop: 12 }}>
           Al primo avvio può servire qualche secondo per attivarsi. Funziona meglio su Chrome.
@@ -168,10 +246,10 @@ function Intro({ onStart }) {
   );
 }
 
-function StatusLine({ status }) {
+function StatusLine({ status, mode }) {
   const map = {
     connecting: { dots: true, text: 'Sto preparando l\'intervista…', color: C.indigo },
-    connected:  { dots: false, text: 'In ascolto — parla pure', color: '#1a7a3c' },
+    connected:  { dots: false, text: mode === 'text' ? 'Pronto — scrivi pure' : 'In ascolto — parla pure', color: '#1a7a3c' },
     error:      { dots: false, text: 'Si è verificato un problema', color: '#b3261e' },
     idle:       { dots: false, text: 'Intervista terminata', color: C.faint },
   };
@@ -187,18 +265,24 @@ function StatusLine({ status }) {
   );
 }
 
-function Interview({ onExit }) {
+function Interview({ mode, kb, onExit }) {
   const { status, transcript, error, connect, disconnect, sendText } = useGeminiLive();
   const [text, setText] = useState('');
   const scrollRef = useRef(null);
+  const inputRef = useRef(null);
   const started = useRef(false);
+  const isText = mode === 'text';
 
   useEffect(() => {
     if (!started.current) {
       started.current = true;
-      connect(SETUP, KICKOFF);
+      connect({ setup: buildSetup(mode, !!(kb || '').trim()), kickoff: KICKOFF, mode, kb });
     }
-  }, [connect]);
+  }, [connect, mode, kb]);
+
+  useEffect(() => {
+    if (isText && status === 'connected') inputRef.current?.focus();
+  }, [isText, status]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -224,14 +308,16 @@ function Interview({ onExit }) {
           width: 92, height: 92, borderRadius: '50%', margin: '0 auto 16px',
           background: 'linear-gradient(135deg, #6c69e6, #403cb8)',
           display: 'grid', placeItems: 'center', fontSize: 38,
-          animation: status === 'connected' ? 'pulse 2s infinite' : 'none',
-        }}>🎙️</div>
+          animation: (status === 'connected' && !isText) ? 'pulse 2s infinite' : 'none',
+        }}>{isText ? '💬' : '🎙️'}</div>
         <div style={{ filter: 'invert(0)' }}>
-          <StatusLine status={status} />
+          <StatusLine status={status} mode={mode} />
         </div>
         {status === 'connected' && (
           <div style={{ fontSize: 13, color: '#aeb4c8', marginTop: 10 }}>
-            Puoi interromperlo mentre parla. Una persona alla volta.
+            {isText
+              ? 'Scrivi qui sotto e premi Invio. Risponde a schermo.'
+              : 'Puoi interromperlo mentre parla. Una persona alla volta.'}
           </div>
         )}
         {status === 'error' && error && (
@@ -268,10 +354,11 @@ function Interview({ onExit }) {
 
       <div style={{ display: 'flex', gap: 8 }}>
         <input
+          ref={inputRef}
           value={text}
           onChange={e => setText(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter' && text.trim()) { sendText(text); setText(''); } }}
-          placeholder="Oppure scrivi qui (facoltativo)…"
+          placeholder={isText ? 'Scrivi il tuo messaggio…' : 'Oppure scrivi qui (facoltativo)…'}
           disabled={status !== 'connected'}
           style={{
             flex: 1, padding: '12px 14px', borderRadius: 12, border: `1px solid ${C.border}`,
@@ -292,8 +379,8 @@ function Interview({ onExit }) {
 }
 
 export default function App() {
-  const [view, setView] = useState('intro');
-  return view === 'intro'
-    ? <Intro onStart={() => setView('interview')} />
-    : <Interview onExit={() => setView('intro')} />;
+  const [cfg, setCfg] = useState(null); // null = schermata intro
+  return !cfg
+    ? <Intro onStart={(mode, kb) => setCfg({ mode, kb })} />
+    : <Interview mode={cfg.mode} kb={cfg.kb} onExit={() => setCfg(null)} />;
 }

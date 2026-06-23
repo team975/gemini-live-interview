@@ -6,6 +6,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { existsSync } from 'fs';
+import { buildStoreFromKB, embedTexts } from './rag.js';
 
 dotenv.config();
 
@@ -14,6 +15,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ID  = process.env.VERTEX_PROJECT_ID;
 const LOCATION    = process.env.VERTEX_LOCATION || 'europe-west1';
 const MODEL       = process.env.VERTEX_MODEL || 'gemini-live-2.5-flash-native-audio';
+// Modo testo NON usa Live (nessun Live text-capable è pubblicato in EU): chat standard.
+const TEXT_MODEL  = process.env.TEXT_MODEL || 'gemini-2.5-flash';
+const KICKOFF_TXT = 'Inizia ora la conversazione con il tuo messaggio di apertura.';
 const AISTUDIO_KEY = process.env.GOOGLE_AI_STUDIO_KEY;
 
 // Use AI Studio if key is set, otherwise Vertex AI
@@ -42,6 +46,20 @@ const ai = useAIStudio
   ? new GoogleGenAI({ apiKey: AISTUDIO_KEY })
   : new GoogleGenAI({ vertexai: true, project: PROJECT_ID, location: LOCATION, googleAuthOptions });
 
+// Tool RAG esposto al modello Live: lui decide quando interrogare la KB
+// (modo Live-nativo: niente race di iniezione per-turno su uno stream continuo).
+const KB_TOOL = {
+  functionDeclarations: [{
+    name: 'cerca_kb',
+    description: "Cerca informazioni nella knowledge base dell'intervista. Usalo SEMPRE prima di porre domande o fare affermazioni specifiche sul dominio/azienda/persona, per ancorare la conversazione ai fatti reali forniti.",
+    parameters: {
+      type: 'OBJECT',
+      properties: { query: { type: 'STRING', description: 'Argomento o domanda da cercare nella knowledge base' } },
+      required: ['query'],
+    },
+  }],
+};
+
 const app = express();
 const server = createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
@@ -66,6 +84,10 @@ wss.on('connection', (client) => {
 
   let session = null;          // sessione Live corrente
   let setupCfg = null;         // config inviata dal client (riusata sui resume)
+  let store = null;            // vector store KB della sessione (null se niente KB)
+  let mode = 'voice';          // 'voice' (Live native-audio) | 'text' (chat standard)
+  let textSys = undefined;     // systemInstruction per il modo testo
+  const chatHistory = [];      // storico chat (modo testo)
   let lastHandle = null;       // ultimo sessionResumption handle
   let setupSent = false;       // setup_complete inviato al client (1 sola volta)
   let clientClosed = false;    // il browser ha chiuso -> non riconnettere
@@ -125,14 +147,42 @@ wss.on('connection', (client) => {
               client.send(JSON.stringify({ setup_complete: {} }));
             }
           },
-          onmessage: (serverMsg) => {
+          onmessage: async (serverMsg) => {
             const sr = serverMsg.sessionResumptionUpdate || serverMsg.session_resumption_update;
             if (sr?.newHandle || sr?.new_handle) lastHandle = sr.newHandle || sr.new_handle;
+
+            // TOOL CALL (RAG): il modello chiede alla knowledge base → ricerca vettoriale → risposta.
+            const tc = serverMsg.toolCall || serverMsg.tool_call;
+            if (tc?.functionCalls?.length) {
+              for (const fc of tc.functionCalls) {
+                let response;
+                try {
+                  if (fc.name === 'cerca_kb' && store) {
+                    const q = (fc.args?.query || '').toString();
+                    const [qv] = await embedTexts(ai, [q], 'RETRIEVAL_QUERY');
+                    const hits = qv ? store.search(qv, 5) : [];
+                    response = { risultati: hits.map(h => ({ testo: h.text, rilevanza: Number(h.score.toFixed(3)) })) };
+                    console.log('[proxy] cerca_kb "%s" -> %d hit', q.slice(0, 60), hits.length);
+                  } else {
+                    response = { risultati: [], nota: 'nessuna knowledge base disponibile' };
+                  }
+                } catch (e) {
+                  console.error('[proxy] cerca_kb err:', e.message);
+                  response = { errore: e.message };
+                }
+                try { session?.sendToolResponse({ functionResponses: [{ id: fc.id, name: fc.name, response }] }); }
+                catch (e) { console.error('[proxy] sendToolResponse err:', e.message); }
+              }
+              return; // non inoltrare il toolCall al client
+            }
+
             // cattura trascrizione
             const sc = serverMsg.serverContent;
             if (sc) {
               if (sc.inputTranscription?.text) curUser += sc.inputTranscription.text;
               if (sc.outputTranscription?.text) curModel += sc.outputTranscription.text;
+              // modo testo: la risposta del modello arriva come text parts (no outputTranscription)
+              if (sc.modelTurn?.parts) for (const p of sc.modelTurn.parts) if (p.text) curModel += p.text;
               if (sc.turnComplete) flushTurn();
             }
             // setupComplete dopo il primo (incluso sui resume): non rinviarlo al client
@@ -202,16 +252,106 @@ wss.on('connection', (client) => {
     }
   };
 
+  // --- Modo TESTO: chat standard (no Live) con tool-loop RAG. Streama testo al client
+  // come serverContent.modelTurn.parts, identico al formato Live -> il client non distingue. ---
+  const genTextTurn = async (userText) => {
+    const isKickoff = userText === KICKOFF_TXT;
+    chatHistory.push({ role: 'user', parts: [{ text: userText }] });
+    if (!isKickoff) { flushTurn(); turns.push({ role: 'user', text: userText }); }
+    const tools = store ? [KB_TOOL] : undefined;
+    try {
+      for (let hop = 0; hop < 5; hop++) {
+        const stream = await ai.models.generateContentStream({
+          model: TEXT_MODEL, contents: chatHistory, config: { systemInstruction: textSys, tools },
+        });
+        const modelParts = [];
+        const calls = [];
+        for await (const ch of stream) {
+          const parts = ch.candidates?.[0]?.content?.parts || [];
+          for (const p of parts) {
+            if (p.text) {
+              modelParts.push({ text: p.text });
+              curModel += p.text;
+              if (client.readyState === WebSocket.OPEN) {
+                client.send(JSON.stringify({ serverContent: { modelTurn: { parts: [{ text: p.text }] } } }));
+              }
+            }
+            if (p.functionCall) { calls.push(p.functionCall); modelParts.push({ functionCall: p.functionCall }); }
+          }
+        }
+        chatHistory.push({ role: 'model', parts: modelParts.length ? modelParts : [{ text: '' }] });
+        if (!calls.length) break;
+        // esegui le tool call e re-itera col risultato
+        const frParts = [];
+        for (const fc of calls) {
+          let response;
+          try {
+            if (fc.name === 'cerca_kb' && store) {
+              const q = (fc.args?.query || '').toString();
+              const [qv] = await embedTexts(ai, [q], 'RETRIEVAL_QUERY');
+              const hits = qv ? store.search(qv, 5) : [];
+              response = { risultati: hits.map(h => ({ testo: h.text, rilevanza: Number(h.score.toFixed(3)) })) };
+              console.log('[proxy] (text) cerca_kb "%s" -> %d hit', q.slice(0, 60), hits.length);
+            } else { response = { risultati: [] }; }
+          } catch (e) { response = { errore: e.message }; }
+          frParts.push({ functionResponse: { name: fc.name, response } });
+        }
+        chatHistory.push({ role: 'user', parts: frParts });
+      }
+    } catch (e) {
+      console.error('[proxy] genText err:', e.message);
+      if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ _proxy_error: e.message }));
+    }
+    flushTurn();
+    if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ serverContent: { turnComplete: true } }));
+  };
+
   client.on('message', async (data) => {
     let msg;
     try { msg = JSON.parse(data.toString()); } catch { return; }
 
-    if (msg.setup && !session && !setupCfg) {
+    if (msg.setup && !setupCfg) {
       setupCfg = msg.setup || {};
-      console.log('[proxy] starting Live session, model:', MODEL);
-      await openSession(null);
+      mode = msg.mode === 'text' ? 'text' : 'voice';
+      // KB opzionale: chunk + embed (Vertex EU) -> vector store + tool cerca_kb
+      if (msg.kb && msg.kb.trim()) {
+        try {
+          console.log('[proxy] embedding KB…');
+          store = await buildStoreFromKB(ai, msg.kb);
+          if (store?.size) {
+            setupCfg.tools = [...(setupCfg.tools || []), KB_TOOL];
+            console.log('[proxy] KB pronta, chunk:', store.size);
+          }
+        } catch (e) {
+          console.error('[proxy] KB embed err:', e.message);
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify({ _proxy_error: 'Preparazione knowledge base fallita: ' + e.message }));
+          }
+          return;
+        }
+      }
+      if (mode === 'text') {
+        textSys = setupCfg.systemInstruction || undefined;
+        setupSent = true;
+        console.log('[proxy] text-mode chat, model:', TEXT_MODEL, 'kbChunks:', store?.size || 0);
+        if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ setup_complete: {} }));
+      } else {
+        console.log('[proxy] starting Live session, model:', MODEL, 'kbChunks:', store?.size || 0);
+        await openSession(null);
+      }
       return;
     }
+
+    // Modo testo: i turni utente vanno alla chat standard, non a Live.
+    if (mode === 'text') {
+      if (msg.client_content) {
+        const cc = msg.client_content;
+        const txt = (cc.turns || []).map(t => (t.parts || []).map(p => p.text).join(' ')).join(' ').trim();
+        if (txt) await genTextTurn(txt);
+      }
+      return;
+    }
+
     forwardMsg(msg);
   });
 

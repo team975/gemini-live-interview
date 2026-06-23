@@ -117,32 +117,36 @@ export function useGeminiLive() {
     nextPlayRef.current = 0;
   }, []);
 
-  const connect = useCallback(async (setupConfig, kickoff = null) => {
+  const connect = useCallback(async ({ setup, kickoff = null, mode = 'voice', kb = '' }) => {
     setS('connecting');
     setError(null);
     setTx([]);
     setRawLog([]);
     sourcesRef.current = [];
     setupDoneRef.current = false;
+    const isVoice = mode !== 'text';
 
-    // Pre-request mic so permission dialog appears before session opens
+    // Modo voce: pre-richiedi il mic così il dialog permessi appare prima della sessione.
+    // Modo testo: nessun mic, nessuna riproduzione audio.
     let preStream = null;
-    try {
-      preStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-    } catch (e) {
-      addLog('!', 'Mic non disponibile: ' + e.message + ' — modalità solo testo attiva');
+    if (isVoice) {
+      try {
+        preStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      } catch (e) {
+        addLog('!', 'Mic non disponibile: ' + e.message + ' — usa il testo');
+      }
     }
 
     try {
-      ctxRef.current = new AudioContext();
+      if (isVoice) ctxRef.current = new AudioContext();
 
       const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
       const ws = new WebSocket(`${wsProto}://${location.host}/ws`);
       wsRef.current = ws;
 
       ws.onopen = () => {
-        const msg = JSON.stringify({ setup: setupConfig });
-        addLog('→', msg);
+        const msg = JSON.stringify({ setup, mode, kb });
+        addLog('→', JSON.stringify({ setup, mode, kb_chars: (kb || '').length }));
         ws.send(msg);
       };
 
