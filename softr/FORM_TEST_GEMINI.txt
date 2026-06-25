@@ -1,16 +1,12 @@
 /* ============================================================================
-   TEST GEMINI LIVE — Form Softr (Vibe Coding block)
+   TEST GEMINI LIVE — Form Softr (Vibe Coding block) — brand Sharazad
    Tabella: "Test Gemini Live" (db Tacita 2.0). Campi: Nome, Cognome, Ruolo, Azienda.
-   Crea il record e reindirizza alla pagina details con ?recordId=<id>.
-   Test interno Sharazad: niente email/magic-link, niente log Google.
+   Flusso: crea record -> POST /api/auth-request (valida @sharazad.com, invia mail
+   col link ?recordId) -> redirect a pagina "controlla email". Solo @sharazad.com.
+   Email NON salvata su Softr (solo per invio link).
 
-   ⚠️ DA PATCHARE A MANO (2 cose):
-   1) FIELD ID dei 4 campi nella tabella "Test Gemini Live":
-      apri il datasource in Vibe Coding → copia gli id e sostituisci i placeholder
-      __FIELD_NOME__ / __FIELD_COGNOME__ / __FIELD_RUOLO__ / __FIELD_AZIENDA__
-      (oppure mandameli e li patcho io).
-   2) DETAILS_PAGE_URL: URL pubblico della pagina details Softr (page 2).
-      Sostituisci __DETAILS_PAGE_URL__ (es. https://<dominio>/test-gemini-details).
+   NOTA campi: q.select usa i NOMI campo. Se Vibe Coding richiede gli ID interni e
+   il create fallisce, sostituisci i nomi con gli ID (Sources -> Content / lista campi).
    ============================================================================ */
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,11 +17,14 @@ import { toast } from "sonner";
 import { DynamicIcon } from "@/components/dynamic-icon";
 import { useRecordCreate, q } from "@/lib/datasource";
 
+// Mappatura campi tabella "Test Gemini Live". I valori sono i NOMI campo Softr.
+// Se Vibe Coding richiede gli ID interni e il create fallisce, sostituisci i nomi
+// con gli ID (Sources → tab Content / lista campi).
 const fields = q.select({
-  nome: "__FIELD_NOME__",
-  cognome: "__FIELD_COGNOME__",
-  ruolo: "__FIELD_RUOLO__",
-  azienda: "__FIELD_AZIENDA__",
+  nome: "Nome",
+  cognome: "Cognome",
+  ruolo: "Ruolo",
+  azienda: "Azienda",
 });
 
 // Page 2 "controlla email" (pubblica) — dopo il submit reindirizziamo qui.
