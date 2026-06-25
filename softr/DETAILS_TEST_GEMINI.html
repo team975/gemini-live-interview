@@ -1,0 +1,68 @@
+<!-- ============================================================================
+  TEST GEMINI LIVE — Pagina Softr "details" (lancio intervista)
+  Da incollare nel Vibe Coding / Custom Code block della pagina details.
+  Il form (page 1) rimanda qui: .../test-gemini-details?recordId=XXX
+  Legge ?recordId e apre l'app Gemini personalizzata (stessa scheda = mic full).
+  Brand: Sharazad.
+  ============================================================================ -->
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+
+<div id="tacita-launch" style="
+  min-height: 80vh; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  font-family: 'DM Sans', system-ui, sans-serif; background: #ffffff; color: #151927;
+  text-align: center; padding: 40px 24px; gap: 28px;">
+
+  <div style="max-width: 520px;">
+    <img src="https://gemini-live-interview.onrender.com/sharazad-logo.png" alt="Sharazad"
+         style="height: 46px; width: auto; margin: 0 auto 28px; display: block;" />
+
+    <div style="display:inline-flex; align-items:center; gap:10px; padding:10px 20px; border-radius:100px;
+                background:#f0f2f5; margin-bottom:24px; font-size:13px; color:#6b7280;">
+      <span style="width:6px; height:6px; border-radius:50%; background:#5451d0; animation:pulse 1.5s ease-in-out infinite;"></span>
+      Intervista AI · Gemini Live
+    </div>
+
+    <div style="margin:0 auto 22px; width:76px; height:76px; border-radius:22px; background:rgba(84,81,208,0.08);
+                display:flex; align-items:center; justify-content:center; font-size:36px;">🎙️</div>
+
+    <p style="font-size:24px; font-weight:700; color:#151927; margin:0 0 12px;">Tutto pronto</p>
+    <p id="tacita-sub" style="color:#6b7280; line-height:1.65; font-size:15px; font-weight:400; margin:0 0 28px;">
+      I tuoi dati sono stati salvati. L'intervistatore AI è stato personalizzato sul tuo profilo.
+      Premi il pulsante per iniziare — serve il microfono, meglio con le cuffie.
+    </p>
+
+    <a id="tacita-btn" href="#" target="_self" rel="noopener" style="
+      display:inline-block; padding:16px 30px; border-radius:14px; background:#5451d0; color:#fff;
+      font-size:17px; font-weight:700; text-decoration:none; box-shadow:0 12px 26px -10px rgba(84,81,208,.6);">
+      🎙️ Avvia l'intervista
+    </a>
+    <div id="tacita-msg" style="margin-top:14px; font-size:13px; color:#9aa0ad;"></div>
+  </div>
+
+  <p style="font-size:11px; letter-spacing:.2em; color:#b0b8c4; line-height:2; margin:0; text-transform:uppercase;">
+    Test interno · tecnologia <strong style="color:#151927; font-weight:700;">Sharazad</strong><br>
+    voce elaborata in Unione Europea
+  </p>
+</div>
+
+<style>
+  @keyframes pulse { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:.4; transform:scale(.7); } }
+</style>
+
+<script>
+(function () {
+  var APP = 'https://gemini-live-interview.onrender.com';
+  var p = new URLSearchParams(location.search);
+  var rid = p.get('recordId') || p.get('id');
+  var btn = document.getElementById('tacita-btn');
+  var msg = document.getElementById('tacita-msg');
+  var sub = document.getElementById('tacita-sub');
+  if (rid) {
+    btn.href = APP + '/?recordId=' + encodeURIComponent(rid);
+  } else {
+    btn.style.opacity = .45; btn.style.pointerEvents = 'none';
+    sub.textContent = 'Apri questa pagina dopo aver compilato il form.';
+    msg.textContent = 'Manca ?recordId nell’URL.';
+  }
+})();
+</script>
