@@ -28,7 +28,10 @@ const fields = q.select({
   azienda: "__FIELD_AZIENDA__",
 });
 
-const DETAILS_PAGE_URL = "__DETAILS_PAGE_URL__"; // page 2 (details) — pubblico
+// Page 2 "controlla email" (pubblica) — dopo il submit reindirizziamo qui.
+const CHECK_EMAIL_URL = "https://yajaira65701.softr.app/daticustom-test-gemini";
+// Endpoint server: valida dominio @sharazad.com e invia la mail col link intervista.
+const AUTH_REQUEST_URL = "https://gemini-live-interview.onrender.com/api/auth-request";
 
 export default function Block() {
   const title = useTextSetting({
@@ -48,15 +51,28 @@ export default function Block() {
   });
 
   const [formData, setFormData] = useState({ nome: "", cognome: "", ruolo: "", azienda: "" });
+  // Email NON salvata su Softr: serve solo a inviare il link via mail (solo @sharazad.com).
+  const [emailAccesso, setEmailAccesso] = useState("");
 
   const createRecord = useRecordCreate({
     fields,
-    onSuccess: (record: any) => {
+    onSuccess: async (record: any) => {
       const recordId = record?.id || "";
+      const nome = formData.nome.trim();
+      const cognome = formData.cognome.trim();
+      const email = emailAccesso.trim().toLowerCase();
       toast.success("Dati salvati!");
+      // Richiesta invio link via email (verifica dominio lato server)
+      try {
+        await fetch(AUTH_REQUEST_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ nome, cognome, email, recordId }),
+        });
+      } catch (err) { console.error("[authRequest]", err); }
       setFormData({ nome: "", cognome: "", ruolo: "", azienda: "" });
-      const sep = DETAILS_PAGE_URL.includes("?") ? "&" : "?";
-      window.location.href = `${DETAILS_PAGE_URL}${sep}recordId=${encodeURIComponent(recordId)}`;
+      setEmailAccesso("");
+      window.location.href = CHECK_EMAIL_URL;
     },
     onError: (error: any) => toast.error(`Errore durante l'invio: ${error.message}`),
   });
@@ -108,6 +124,11 @@ export default function Block() {
                     <Label htmlFor="cognome" style={{ color: "#151927", fontWeight: 500 }}>Cognome <span style={{ color: "#dc2626" }}>*</span></Label>
                     <Input id="cognome" value={formData.cognome} onChange={(e) => handleChange("cognome", e.target.value)} required className="h-14 text-lg" placeholder="Il tuo cognome" style={inputStyle} />
                   </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="emailAccesso" style={{ color: "#151927", fontWeight: 500 }}>Email aziendale <span style={{ color: "#dc2626" }}>*</span></Label>
+                  <Input id="emailAccesso" type="email" value={emailAccesso} onChange={(e) => setEmailAccesso(e.target.value)} required className="h-14 text-lg" placeholder="nome@sharazad.com" style={inputStyle} />
+                  <p className="text-sm" style={{ color: "#6b7280" }}>Il link personale per l'intervista verrà inviato a questa email.</p>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="ruolo" style={{ color: "#151927", fontWeight: 500 }}>Ruolo <span style={{ color: "#dc2626" }}>*</span></Label>

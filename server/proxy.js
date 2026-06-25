@@ -61,6 +61,17 @@ const KB_TOOL = {
 };
 
 const app = express();
+app.use(express.json());
+
+// CORS aperto per gli endpoint /api (chiamati dal browser dalle pagine Softr).
+app.use('/api', (req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Accept');
+  if (req.method === 'OPTIONS') return res.status(204).end();
+  next();
+});
+
 const server = createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
 
@@ -126,6 +137,44 @@ app.get('/api/interview', async (req, res) => {
     console.error('[proxy] /api/interview err:', e.message);
     res.status(502).json({ ok: false, error: 'proxy_error', message: e.message });
   }
+});
+
+// --- Richiesta link intervista via email (magic-link) ---
+// Form Softr -> qui. Validiamo il dominio email (solo @sharazad.com), poi inoltriamo
+// al webhook n8n "gemini-auth-request" che invia la mail con il link ?recordId.
+// Risposta sempre {ok:true} (non riveliamo se l'email è autorizzata o meno).
+const AUTH_WEBHOOK = process.env.GEMINI_AUTH_WEBHOOK; // https://n8n.tacita.ai/webhook/gemini-auth-request
+const AUTH_SECRET  = process.env.GEMINI_AUTH_SECRET;  // header condiviso con n8n
+const ALLOWED_EMAIL_DOMAINS = (process.env.ALLOWED_EMAIL_DOMAINS || 'sharazad.com')
+  .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+
+app.post('/api/auth-request', async (req, res) => {
+  const b = req.body || {};
+  const email = String(b.email || '').trim().toLowerCase();
+  const nome = String(b.nome || '').trim();
+  const cognome = String(b.cognome || '').trim();
+  const recordId = String(b.recordId || '').trim();
+  const emailOk = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email);
+  const domain = email.split('@')[1] || '';
+  const domainOk = ALLOWED_EMAIL_DOMAINS.includes(domain);
+
+  // Non riveliamo l'esito: rispondiamo sempre ok. Inoltriamo solo se valido + autorizzato.
+  if (emailOk && domainOk && recordId && AUTH_WEBHOOK) {
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (AUTH_SECRET) headers['x-gemini-auth'] = AUTH_SECRET;
+      const r = await fetch(AUTH_WEBHOOK, {
+        method: 'POST', headers,
+        body: JSON.stringify({ nome, cognome, email, recordId }),
+      });
+      console.log('[proxy] auth-request inoltrata', email, 'http', r.status);
+    } catch (e) {
+      console.error('[proxy] auth-request forward err:', e.message);
+    }
+  } else {
+    console.log('[proxy] auth-request scartata (emailOk=%s domainOk=%s rec=%s)', emailOk, domainOk, !!recordId);
+  }
+  res.json({ ok: true });
 });
 
 // Serve la build di produzione (single-server: stesso host per UI + /ws).
