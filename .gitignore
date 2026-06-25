@@ -4,5 +4,7 @@ dist/
 *.json.key
 *service-account*.json
 eastern-map-*.json
+chiave progetto*.json
+*console.json
 /~
 *.log

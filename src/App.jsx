@@ -7,9 +7,15 @@ const KICKOFF = 'Inizia ora la conversazione con il tuo messaggio di apertura.';
 // quando cambia la KB, qui si cambia anche scopo e frase d'apertura.
 const DEFAULT_BRIEF = `Sei un intervistatore AI. Conduci una conversazione vocale per esplorare come la persona usa l'intelligenza artificiale nel lavoro e nella vita quotidiana in generale.
 
+PROFILO INTERVISTATO (dati forniti prima dell'intervista):
+- Nome: {{nome}} {{cognome}}
+- Ruolo: {{ruolo}}
+- Azienda: {{azienda}}
+Usa questi dati per personalizzare apertura e domande. Se un dato è vuoto, non inventarlo.
+
 REGOLA SUL PRIMO MESSAGGIO (vincolante):
 Il tuo primissimo turno parlato deve essere ESATTAMENTE, parola per parola, questo:
-"Ciao! Sono un intervistatore AI. Vorrei farti qualche domanda su come usi l'intelligenza artificiale nel lavoro e nella vita di tutti i giorni. Non ci sono risposte giuste o sbagliate, mi interessa la tua esperienza. Per iniziare: di cosa ti occupi, e ti capita di usare strumenti di AI?"
+"Ciao {{nome}}! Sono un intervistatore AI. Vorrei farti qualche domanda su come usi l'intelligenza artificiale nel lavoro e nella vita di tutti i giorni. Non ci sono risposte giuste o sbagliate, mi interessa la tua esperienza. Per iniziare: di cosa ti occupi, e ti capita di usare strumenti di AI?"
 
 STILE (sempre):
 - Turni brevi: 3-4 frasi al massimo.
@@ -33,6 +39,17 @@ Far emergere esperienze concrete ed esempi reali. Fai domande di approfondimento
 
 const KB_INSTRUCTION = `KNOWLEDGE BASE:
 Hai a disposizione lo strumento "cerca_kb" che interroga una knowledge base specifica fornita per questa intervista. Usalo PRIMA di porre domande o fare affermazioni su fatti specifici (azienda, prodotto, persona, contesto): cerca l'argomento, poi formula la domanda ancorata a ciò che emerge. Non inventare dettagli che non risultano dalla knowledge base; se qualcosa non c'è, chiedilo alla persona.`;
+
+// Riempie i placeholder {{nome}} {{cognome}} {{ruolo}} {{azienda}} coi dati del record Softr.
+// Se un dato manca, lo lascia vuoto e ripulisce gli artefatti ("Ciao !", spazi doppi).
+function fillBrief(brief, p = {}) {
+  const v = { nome: p.nome || '', cognome: p.cognome || '', ruolo: p.ruolo || '', azienda: p.azienda || '' };
+  return brief
+    .replace(/\{\{(nome|cognome|ruolo|azienda)\}\}/g, (_, k) => v[k])
+    .replace(/Ciao !/g, 'Ciao!')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/ +([!?.,;:])/g, '$1');
+}
 
 // Costruisce il setup Live in base alla modalità. Live è mono-modalità per sessione:
 // voce -> AUDIO (+ trascrizione + voce); testo -> TEXT (niente audio).
@@ -116,11 +133,14 @@ function ModeCard({ active, onClick, icon, title, desc }) {
   );
 }
 
-function Intro({ onStart }) {
+function Intro({ onStart, profile }) {
+  const initialBrief = profile?.ok ? fillBrief(DEFAULT_BRIEF, profile) : DEFAULT_BRIEF;
   const [mode, setMode] = useState('voice');
   const [kb, setKb] = useState('');
-  const [brief, setBrief] = useState(DEFAULT_BRIEF);
+  const [brief, setBrief] = useState(initialBrief);
   const fileRef = useRef(null);
+  const fullName = [profile?.nome, profile?.cognome].filter(Boolean).join(' ');
+  const profileLine = [profile?.ruolo, profile?.azienda].filter(Boolean).join(' · ');
 
   const onFile = async (e) => {
     const f = e.target.files?.[0];
@@ -133,6 +153,19 @@ function Intro({ onStart }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>
         <Wordmark />
       </div>
+
+      {profile?.ok && fullName && (
+        <div style={{
+          background: C.navy, color: '#fff', borderRadius: 16, padding: '14px 18px', marginBottom: 18,
+          display: 'flex', alignItems: 'center', gap: 12,
+        }}>
+          <span style={{ fontSize: 22 }}>👤</span>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 16 }}>Intervista per {fullName}</div>
+            {profileLine && <div style={{ fontSize: 13, color: '#aeb4c8', marginTop: 2 }}>{profileLine}</div>}
+          </div>
+        </div>
+      )}
 
       <div style={{
         background: C.white, border: `1px solid ${C.border}`, borderRadius: 24,
@@ -245,7 +278,7 @@ function Intro({ onStart }) {
               fontSize: 13.5, fontFamily: 'inherit', resize: 'vertical', outline: 'none', color: C.ink,
             }}
           />
-          <button onClick={() => setBrief(DEFAULT_BRIEF)} style={{
+          <button onClick={() => setBrief(initialBrief)} style={{
             marginTop: 8, padding: '6px 12px', borderRadius: 9, background: '#fff', border: `1px solid ${C.border}`,
             color: C.indigoDk, fontWeight: 700, fontSize: 12.5,
           }}>↺ Ripristina default</button>
@@ -293,7 +326,7 @@ function StatusLine({ status, mode }) {
   );
 }
 
-function Interview({ mode, kb, brief, onExit }) {
+function Interview({ mode, kb, brief, profile, onExit }) {
   const { status, transcript, error, connect, disconnect, sendText } = useGeminiLive();
   const [text, setText] = useState('');
   const scrollRef = useRef(null);
@@ -304,9 +337,11 @@ function Interview({ mode, kb, brief, onExit }) {
   useEffect(() => {
     if (!started.current) {
       started.current = true;
-      connect({ setup: buildSetup(mode, !!(kb || '').trim(), brief), kickoff: KICKOFF, mode, kb });
+      // Riempi i placeholder coi dati del record (idempotente: se già pieni, no-op).
+      const finalBrief = fillBrief(brief, profile || {});
+      connect({ setup: buildSetup(mode, !!(kb || '').trim(), finalBrief), kickoff: KICKOFF, mode, kb });
     }
-  }, [connect, mode, kb, brief]);
+  }, [connect, mode, kb, brief, profile]);
 
   useEffect(() => {
     if (isText && status === 'connected') inputRef.current?.focus();
@@ -407,8 +442,35 @@ function Interview({ mode, kb, brief, onExit }) {
 }
 
 export default function App() {
-  const [cfg, setCfg] = useState(null); // null = schermata intro
+  const [cfg, setCfg] = useState(null);        // null = schermata intro
+  const [profile, setProfile] = useState(null); // dati intervistato da Softr (via recordId)
+  const [loading, setLoading] = useState(false);
+
+  // All'avvio: se l'URL ha ?recordId=… leggi i dati dell'intervistato dal proxy.
+  useEffect(() => {
+    const rid = new URLSearchParams(location.search).get('recordId')
+      || new URLSearchParams(location.search).get('id');
+    if (!rid) return;
+    setLoading(true);
+    fetch('/api/interview?recordId=' + encodeURIComponent(rid))
+      .then(r => r.json())
+      .then(d => setProfile(d?.ok ? d : { ok: false, error: d?.error || 'fetch_failed' }))
+      .catch(e => setProfile({ ok: false, error: e.message }))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', color: 'var(--muted)' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div className="dot" /><div className="dot" /><div className="dot" />
+          <div style={{ marginTop: 12 }}>Carico i dati dell'intervista…</div>
+        </div>
+      </div>
+    );
+  }
+
   return !cfg
-    ? <Intro onStart={(mode, kb, brief) => setCfg({ mode, kb, brief })} />
-    : <Interview mode={cfg.mode} kb={cfg.kb} brief={cfg.brief} onExit={() => setCfg(null)} />;
+    ? <Intro profile={profile} onStart={(mode, kb, brief) => setCfg({ mode, kb, brief })} />
+    : <Interview mode={cfg.mode} kb={cfg.kb} brief={cfg.brief} profile={profile} onExit={() => setCfg(null)} />;
 }

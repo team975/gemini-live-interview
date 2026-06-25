@@ -71,6 +71,63 @@ app.get('/health', (req, res) => res.json({
   location: LOCATION,
 }));
 
+// --- Lettura dati intervistato da Softr (via PONTE n8n) ---
+// Il browser passa ?recordId=… (link generato da Softr). Qui (server-side, EU) chiamiamo
+// il webhook n8n "gemini-proxy" che fa il getOne su Softr e ritorna i campi anagrafici.
+// L'auth header del webhook resta lato server: non finisce mai nel browser.
+const GEMINI_PROXY_URL = process.env.GEMINI_PROXY_URL; // es. https://n8n.tacita.ai/webhook/gemini-proxy
+const PROXY_AUTH_NAME  = process.env.GEMINI_PROXY_AUTH_HEADER_NAME;  // es. X-Tacita-Auth
+const PROXY_AUTH_VALUE = process.env.GEMINI_PROXY_AUTH_HEADER_VALUE;
+
+const pickStr = (obj, ...keys) => {
+  for (const k of keys) {
+    const v = obj?.[k];
+    if (v != null && String(v).trim() !== '') return String(v).trim();
+  }
+  return '';
+};
+
+app.get('/api/interview', async (req, res) => {
+  const recordId = String(req.query.recordId || req.query.id || '').trim();
+  if (!recordId) return res.status(400).json({ ok: false, error: 'missing_recordId' });
+  if (!GEMINI_PROXY_URL) return res.status(500).json({ ok: false, error: 'proxy_not_configured' });
+
+  try {
+    const url = new URL(GEMINI_PROXY_URL);
+    url.searchParams.set('recordId', recordId);
+    url.searchParams.set('id', recordId);
+    const headers = { accept: 'application/json' };
+    if (PROXY_AUTH_NAME && PROXY_AUTH_VALUE) headers[PROXY_AUTH_NAME] = PROXY_AUTH_VALUE;
+
+    const r = await fetch(url, { headers });
+    if (!r.ok) {
+      const body = await r.text();
+      console.error('[proxy] gemini-proxy http', r.status, body.slice(0, 200));
+      return res.status(502).json({ ok: false, error: 'proxy_unavailable', status: r.status });
+    }
+    let data = await r.json();
+    if (Array.isArray(data)) data = data[0] || {};
+    if (data?.json) data = data.json;            // n8n a volte incapsula in .json
+    const src = data?.fields ? { ...data, ...data.fields } : data;
+    if (src?.ok === false) {
+      return res.status(404).json({ ok: false, error: src.error || 'record_not_found' });
+    }
+
+    const profile = {
+      ok: true,
+      recordId,
+      nome:    pickStr(src, 'nome', 'Nome', 'Custom1'),
+      cognome: pickStr(src, 'cognome', 'Cognome', 'Custom2'),
+      ruolo:   pickStr(src, 'ruolo', 'Ruolo', 'Custom3'),
+      azienda: pickStr(src, 'azienda', 'Azienda', 'Custom4'),
+    };
+    res.json(profile);
+  } catch (e) {
+    console.error('[proxy] /api/interview err:', e.message);
+    res.status(502).json({ ok: false, error: 'proxy_error', message: e.message });
+  }
+});
+
 // Serve la build di produzione (single-server: stesso host per UI + /ws).
 const DIST = path.join(__dirname, '..', 'dist');
 if (existsSync(DIST)) {
