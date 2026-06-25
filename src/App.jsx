@@ -3,6 +3,11 @@ import { useGeminiLive } from './hooks/useGeminiLive';
 
 const KICKOFF = 'Inizia ora la conversazione con il tuo messaggio di apertura.';
 
+// Pagina iniziale (root, senza recordId) -> manda al form Softr.
+// Il form crea il record, invia la mail col link ?recordId che riporta qui personalizzato.
+const FORM_URL = 'https://yajaira65701.softr.app/form-test-gemini?autoUser=true';
+const LOGO_URL = '/sharazad-logo.png';
+
 // Brief di default (persona + obiettivo + apertura). Editabile a inizio sessione:
 // quando cambia la KB, qui si cambia anche scopo e frase d'apertura.
 const DEFAULT_BRIEF = `Sei un intervistatore AI. Conduci una conversazione vocale per esplorare come la persona usa l'intelligenza artificiale nel lavoro e nella vita quotidiana in generale.
@@ -441,23 +446,68 @@ function Interview({ mode, kb, brief, profile, onExit }) {
   );
 }
 
-export default function App() {
-  const [cfg, setCfg] = useState(null);        // null = schermata intro
-  const [profile, setProfile] = useState(null); // dati intervistato da Softr (via recordId)
-  const [loading, setLoading] = useState(false);
+// Pagina iniziale: spiega il test e manda al form Softr (dove inserisci i dati).
+function Landing() {
+  return (
+    <div className="fade-up" style={{ maxWidth: 640, margin: '0 auto', padding: '32px 20px 56px' }}>
+      <img src={LOGO_URL} alt="Sharazad" style={{ height: 40, width: 'auto', marginBottom: 28 }} />
+      <div style={{
+        background: C.white, border: `1px solid ${C.border}`, borderRadius: 24,
+        padding: 'clamp(24px, 4vw, 40px)', boxShadow: '0 18px 50px -24px rgba(21,25,39,0.25)',
+      }}>
+        <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: '0.12em', color: C.indigo, marginBottom: 12 }}>
+          TEST · INTERVISTA VOCALE AI
+        </div>
+        <h1 style={{ fontSize: 'clamp(26px, 5vw, 36px)', lineHeight: 1.12, letterSpacing: '-0.02em', marginBottom: 14 }}>
+          Parla con un intervistatore AI
+        </h1>
+        <p style={{ fontSize: 16.5, color: C.muted, marginBottom: 22 }}>
+          Un <strong style={{ color: C.ink }}>intervistatore vocale AI</strong> ti farà qualche domanda — a voce, in italiano —
+          su come usi l'AI nel lavoro e nella vita. Prima inserisci i tuoi dati: l'intervista verrà
+          <strong style={{ color: C.ink }}> personalizzata</strong> sul tuo profilo. Riceverai il link via email.
+        </p>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 26 }}>
+          <Pill>⏱️ 10–30 minuti</Pill>
+          <Pill>🎙️ Serve il microfono</Pill>
+          <Pill>📧 Link via email</Pill>
+          <Pill>🇮🇹 In italiano</Pill>
+        </div>
+        <div style={{ background: C.lav, borderRadius: 14, padding: '14px 16px', fontSize: 13.5, color: C.muted, marginBottom: 26 }}>
+          🔒 <strong style={{ color: C.ink }}>Privacy:</strong> test interno. La voce è elaborata su server in
+          Unione Europea. Accesso riservato agli indirizzi <strong style={{ color: C.ink }}>@sharazad.com</strong>.
+        </div>
+        <a href={FORM_URL} style={{
+          display: 'block', textAlign: 'center', width: '100%', padding: '16px 22px', borderRadius: 14,
+          background: C.indigo, color: '#fff', fontSize: 17, fontWeight: 700, textDecoration: 'none',
+          boxShadow: '0 12px 26px -10px rgba(84,81,208,0.6)',
+        }}>Inizia → inserisci i tuoi dati</a>
+      </div>
+      <div style={{ textAlign: 'center', fontSize: 12.5, color: C.faint, marginTop: 22 }}>
+        Tecnologia Sharazad · voce elaborata in UE (Google Vertex AI, europe-west1)
+      </div>
+    </div>
+  );
+}
 
-  // All'avvio: se l'URL ha ?recordId=… leggi i dati dell'intervistato dal proxy.
+export default function App() {
+  const rid = new URLSearchParams(location.search).get('recordId')
+    || new URLSearchParams(location.search).get('id');
+  const [cfg, setCfg] = useState(null);          // null = schermata intro
+  const [profile, setProfile] = useState(null);  // dati intervistato da Softr (via recordId)
+  const [loading, setLoading] = useState(!!rid);
+
+  // Con ?recordId (link dalla mail): leggi i dati dell'intervistato dal proxy.
   useEffect(() => {
-    const rid = new URLSearchParams(location.search).get('recordId')
-      || new URLSearchParams(location.search).get('id');
     if (!rid) return;
-    setLoading(true);
     fetch('/api/interview?recordId=' + encodeURIComponent(rid))
       .then(r => r.json())
       .then(d => setProfile(d?.ok ? d : { ok: false, error: d?.error || 'fetch_failed' }))
       .catch(e => setProfile({ ok: false, error: e.message }))
       .finally(() => setLoading(false));
-  }, []);
+  }, [rid]);
+
+  // Senza recordId = pagina iniziale (root): porta al form Softr.
+  if (!rid) return <Landing />;
 
   if (loading) {
     return (
