@@ -39,7 +39,7 @@ export default function Block() {
   const welcomeText = useLongTextSetting({
     name: "welcome-text",
     label: "Welcome Text",
-    initialValue: "Compila i tuoi dati: servono a personalizzare l'intervistatore AI (apertura e domande adattate al tuo ruolo e alla tua azienda).",
+    initialValue: "Compila i tuoi dati: servono a personalizzare l'intervistatore AI (apertura e domande adattate al tuo ruolo e allo strumento di AI che usi di più).",
   });
   const submitButtonText = useTextSetting({
     name: "submit-button-text",
@@ -132,8 +132,9 @@ export default function Block() {
                   <Input id="ruolo" value={formData.ruolo} onChange={(e) => handleChange("ruolo", e.target.value)} required className="h-14 text-lg" placeholder="Es. Responsabile IT, Designer, Manager..." style={inputStyle} />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="azienda" style={{ color: "#151927", fontWeight: 500 }}>Azienda <span style={{ color: "#dc2626" }}>*</span></Label>
-                  <Input id="azienda" value={formData.azienda} onChange={(e) => handleChange("azienda", e.target.value)} required className="h-14 text-lg" placeholder="Nome azienda" style={inputStyle} />
+                  <Label htmlFor="azienda" style={{ color: "#151927", fontWeight: 500 }}>Strumento di AI che usi di più <span style={{ color: "#dc2626" }}>*</span></Label>
+                  <Input id="azienda" value={formData.azienda} onChange={(e) => handleChange("azienda", e.target.value)} required className="h-14 text-lg" placeholder="Es. ChatGPT, Claude, Gemini, Copilot…" style={inputStyle} />
+                  <p className="text-sm" style={{ color: "#6b7280" }}>L'intervista partirà da questo strumento.</p>
                 </div>
 
                 <Button

@@ -15,12 +15,12 @@ const DEFAULT_BRIEF = `Sei un intervistatore AI. Conduci una conversazione vocal
 PROFILO INTERVISTATO (dati forniti prima dell'intervista):
 - Nome: {{nome}} {{cognome}}
 - Ruolo: {{ruolo}}
-- Azienda: {{azienda}}
-Usa questi dati per personalizzare apertura e domande. Se un dato è vuoto, non inventarlo.
+- Strumento di AI che usa di più: {{strumento}}
+Usa questi dati per personalizzare apertura e domande. Parti dallo strumento che usa di più per indirizzare la conversazione. Se un dato è vuoto, non inventarlo.
 
 REGOLA SUL PRIMO MESSAGGIO (vincolante):
 Il tuo primissimo turno parlato deve essere ESATTAMENTE, parola per parola, questo:
-"Ciao {{nome}}! Sono un intervistatore AI. Vorrei farti qualche domanda su come usi l'intelligenza artificiale nel lavoro e nella vita di tutti i giorni. Non ci sono risposte giuste o sbagliate, mi interessa la tua esperienza. Per iniziare: di cosa ti occupi, e ti capita di usare strumenti di AI?"
+"Ciao {{nome}}! Sono un intervistatore AI. Vorrei farti qualche domanda su come usi l'intelligenza artificiale nel lavoro e nella vita di tutti i giorni. Non ci sono risposte giuste o sbagliate, mi interessa la tua esperienza. So che lo strumento che usi di più è {{strumento}}: partiamo da lì — per cosa lo usi di solito?"
 
 STILE (sempre):
 - Turni brevi: 3-4 frasi al massimo.
@@ -48,9 +48,13 @@ Hai a disposizione lo strumento "cerca_kb" che interroga una knowledge base spec
 // Riempie i placeholder {{nome}} {{cognome}} {{ruolo}} {{azienda}} coi dati del record Softr.
 // Se un dato manca, lo lascia vuoto e ripulisce gli artefatti ("Ciao !", spazi doppi).
 function fillBrief(brief, p = {}) {
-  const v = { nome: p.nome || '', cognome: p.cognome || '', ruolo: p.ruolo || '', azienda: p.azienda || '' };
+  // 'strumento' = strumento AI più usato (storato nella colonna Softr "Azienda"/mzduY).
+  const v = {
+    nome: p.nome || '', cognome: p.cognome || '', ruolo: p.ruolo || '',
+    azienda: p.azienda || '', strumento: p.strumento || p.azienda || '',
+  };
   return brief
-    .replace(/\{\{(nome|cognome|ruolo|azienda)\}\}/g, (_, k) => v[k])
+    .replace(/\{\{(nome|cognome|ruolo|azienda|strumento)\}\}/g, (_, k) => v[k])
     .replace(/Ciao !/g, 'Ciao!')
     .replace(/[ \t]{2,}/g, ' ')
     .replace(/ +([!?.,;:])/g, '$1');
@@ -145,7 +149,7 @@ function Intro({ onStart, profile }) {
   const [brief, setBrief] = useState(initialBrief);
   const fileRef = useRef(null);
   const fullName = [profile?.nome, profile?.cognome].filter(Boolean).join(' ');
-  const profileLine = [profile?.ruolo, profile?.azienda].filter(Boolean).join(' · ');
+  const profileLine = [profile?.ruolo, profile?.azienda && ('AI: ' + profile.azienda)].filter(Boolean).join(' · ');
 
   const onFile = async (e) => {
     const f = e.target.files?.[0];
