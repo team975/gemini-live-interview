@@ -80,18 +80,34 @@ app.use('/api', (req, res, next) => {
 const server = createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
 
-// Diagnostica: prova una generateContent non-stream e ritorna l'esito grezzo.
+// Diagnostica: (1) mint token SA esplicito (isola rete OAuth), (2) generateContent.
 app.get('/api/diag', async (req, res) => {
+  const out = {};
+  // (1) token mint diretto via google-auth-library
+  try {
+    const { GoogleAuth } = await import('google-auth-library');
+    const ga = new GoogleAuth({
+      credentials: googleAuthOptions?.credentials,
+      scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+    });
+    const t0 = Date.now();
+    const client = await ga.getClient();
+    const tok = await client.getAccessToken();
+    out.tokenMint = { ok: true, len: (tok?.token || '').length, ms: Date.now() - t0 };
+  } catch (e) {
+    out.tokenMint = { ok: false, error: String(e?.message || e).slice(0, 300) };
+  }
+  // (2) generateContent via SDK
   try {
     const r = await ai.models.generateContent({
       model: TEXT_MODEL,
       contents: [{ role: 'user', parts: [{ text: 'ping' }] }],
     });
-    const text = r?.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || '';
-    res.json({ ok: true, text: text.slice(0, 80) });
+    out.generate = { ok: true, text: (r?.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || '').slice(0, 60) };
   } catch (e) {
-    res.json({ ok: false, error: String(e?.message || e).slice(0, 500) });
+    out.generate = { ok: false, error: String(e?.message || e).slice(0, 200) };
   }
+  res.json(out);
 });
 
 app.get('/health', (req, res) => res.json({
