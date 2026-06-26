@@ -176,8 +176,8 @@ app.get('/api/interview', async (req, res) => {
       nome:    pickStr(src, 'nome', 'Nome', 'Custom1'),
       cognome: pickStr(src, 'cognome', 'Cognome', 'Custom2'),
       ruolo:   pickStr(src, 'ruolo', 'Ruolo', 'Custom3'),
-      // "azienda" = storage dello strumento AI più usato (campo Softr "Strumento IA", id mzduY)
-      azienda: pickStr(src, 'strumento', 'Strumento IA', 'Strumento AI', 'azienda', 'Azienda', 'Custom4'),
+      // "azienda" = storage dello strumento AI più usato (campo Softr "IA", id mzduY)
+      azienda: pickStr(src, 'IA', 'strumento', 'Strumento IA', 'azienda', 'Azienda', 'Custom4'),
     };
     res.json(profile);
   } catch (e) {

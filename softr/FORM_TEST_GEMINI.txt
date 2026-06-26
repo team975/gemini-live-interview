@@ -1,6 +1,6 @@
 /* ============================================================================
    TEST GEMINI LIVE — Form Softr (Vibe Coding block) — brand Sharazad
-   Tabella: "Test Gemini Live" (db Tacita 2.0). Campi: Nome, Cognome, Ruolo, Azienda.
+   Tabella: "Test Gemini Live" (db Tacita 2.0). Campi: Nome, Cognome, Ruolo, IA (mzduY = strumento AI).
    Flusso: crea record -> POST /api/auth-request (valida @sharazad.com, invia mail
    col link ?recordId) -> redirect a pagina "controlla email". Solo @sharazad.com.
    Email NON salvata su Softr (solo per invio link).
@@ -22,7 +22,7 @@ const fields = q.select({
   nome: "s1Yrh",
   cognome: "WJ3e6",
   ruolo: "NbXCu",
-  azienda: "mzduY",
+  ia: "mzduY",
 });
 
 // Page 2 "controlla email" (pubblica) — dopo il submit reindirizziamo qui.
@@ -47,7 +47,7 @@ export default function Block() {
     initialValue: "Avvia",
   });
 
-  const [formData, setFormData] = useState({ nome: "", cognome: "", ruolo: "", azienda: "" });
+  const [formData, setFormData] = useState({ nome: "", cognome: "", ruolo: "", ia: "" });
   // Email NON salvata su Softr: serve solo a inviare il link via mail (solo @sharazad.com).
   const [emailAccesso, setEmailAccesso] = useState("");
 
@@ -67,7 +67,7 @@ export default function Block() {
           body: JSON.stringify({ nome, cognome, email, recordId }),
         });
       } catch (err) { console.error("[authRequest]", err); }
-      setFormData({ nome: "", cognome: "", ruolo: "", azienda: "" });
+      setFormData({ nome: "", cognome: "", ruolo: "", ia: "" });
       setEmailAccesso("");
       window.location.href = CHECK_EMAIL_URL;
     },
@@ -132,8 +132,8 @@ export default function Block() {
                   <Input id="ruolo" value={formData.ruolo} onChange={(e) => handleChange("ruolo", e.target.value)} required className="h-14 text-lg" placeholder="Es. Responsabile IT, Designer, Manager..." style={inputStyle} />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="azienda" style={{ color: "#151927", fontWeight: 500 }}>Strumento di AI che usi di più <span style={{ color: "#dc2626" }}>*</span></Label>
-                  <Input id="azienda" value={formData.azienda} onChange={(e) => handleChange("azienda", e.target.value)} required className="h-14 text-lg" placeholder="Es. ChatGPT, Claude, Gemini, Copilot…" style={inputStyle} />
+                  <Label htmlFor="ia" style={{ color: "#151927", fontWeight: 500 }}>Strumento di AI che usi di più <span style={{ color: "#dc2626" }}>*</span></Label>
+                  <Input id="ia" value={formData.ia} onChange={(e) => handleChange("ia", e.target.value)} required className="h-14 text-lg" placeholder="Es. ChatGPT, Claude, Gemini, Copilot…" style={inputStyle} />
                   <p className="text-sm" style={{ color: "#6b7280" }}>L'intervista partirà da questo strumento.</p>
                 </div>
 
