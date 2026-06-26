@@ -265,9 +265,28 @@ wss.on('connection', (client) => {
     saved = true;
     flushTurn();
     if (!turns.length) return;
+
+    // --- MemorizzaConversazioni (n8n): payload EL-shaped -> riga in tabella Conversazione
+    // (compare in "interviste svolte"). Senza dynamic_variables.id -> ramo CREATE (riga nuova).
+    const memo = process.env.MEMORIZZA_WEBHOOK;
+    if (memo) {
+      const elPayload = { data: {
+        conversation_id: sessionId,
+        agent_id: process.env.GEMINI_AGENT_ID || 'gemini-test-softr',
+        transcript: turns.map(t => ({ role: t.role === 'model' ? 'agent' : 'user', message: t.text })),
+      } };
+      try {
+        const r = await fetch(memo, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(elPayload) });
+        console.log('[proxy] MemorizzaConversazioni', sessionId, 'turni', turns.length, 'http', r.status);
+      } catch (e) {
+        console.error('[proxy] MemorizzaConversazioni err:', e.message);
+      }
+    }
+
+    // --- (opzionale) webhook trascrizione raw, se configurato
     const payload = { sessionId, startedAt, endedAt: new Date().toISOString(), turnCount: turns.length, turns };
     const url = process.env.TRANSCRIPT_WEBHOOK;
-    if (!url) { console.log('[proxy] transcript (no webhook):', JSON.stringify(payload).slice(0, 600)); return; }
+    if (!url) { if (!memo) console.log('[proxy] transcript (no webhook):', JSON.stringify(payload).slice(0, 400)); return; }
     try {
       const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       console.log('[proxy] transcript inviata', sessionId, 'turni', turns.length, 'http', r.status);
