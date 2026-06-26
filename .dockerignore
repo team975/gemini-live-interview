@@ -1,0 +1,13 @@
+node_modules
+dist
+.git
+.env
+.env.*
+*.log
+# SECRET: service account key — MAI nell'immagine
+chiave progetto*.json
+*console.json
+*service-account*.json
+eastern-map-*.json
+~
+docs
