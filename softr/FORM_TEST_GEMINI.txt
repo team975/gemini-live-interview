@@ -17,14 +17,12 @@ import { toast } from "sonner";
 import { DynamicIcon } from "@/components/dynamic-icon";
 import { useRecordCreate, q } from "@/lib/datasource";
 
-// Mappatura campi tabella "Test Gemini Live". I valori sono i NOMI campo Softr.
-// Se Vibe Coding richiede gli ID interni e il create fallisce, sostituisci i nomi
-// con gli ID (Sources → tab Content / lista campi).
+// Mappatura campi tabella "Test Gemini Live" — ID INTERNI Softr (verificati via Data API).
 const fields = q.select({
-  nome: "Nome",
-  cognome: "Cognome",
-  ruolo: "Ruolo",
-  azienda: "Azienda",
+  nome: "s1Yrh",
+  cognome: "WJ3e6",
+  ruolo: "NbXCu",
+  azienda: "mzduY",
 });
 
 // Page 2 "controlla email" (pubblica) — dopo il submit reindirizziamo qui.
