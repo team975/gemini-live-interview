@@ -32,8 +32,13 @@ if (!useAIStudio && !PROJECT_ID) {
 let googleAuthOptions;
 if (process.env.GOOGLE_SA_JSON) {
   try {
-    googleAuthOptions = { credentials: JSON.parse(process.env.GOOGLE_SA_JSON) };
+    const cred = JSON.parse(process.env.GOOGLE_SA_JSON);
+    googleAuthOptions = { credentials: cred };
+    const pk = cred.private_key || '';
     console.log('[proxy] auth: service account da GOOGLE_SA_JSON');
+    console.log('[proxy][diag] SA email=%s | pk len=%d | pk has real newlines=%s | starts=%s | ends=%s',
+      cred.client_email, pk.length, /\n/.test(pk),
+      JSON.stringify(pk.slice(0, 28)), JSON.stringify(pk.slice(-28)));
   } catch (e) {
     console.error('[proxy] GOOGLE_SA_JSON non e\' JSON valido:', e.message);
     process.exit(1);
@@ -74,6 +79,20 @@ app.use('/api', (req, res, next) => {
 
 const server = createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
+
+// Diagnostica: prova una generateContent non-stream e ritorna l'esito grezzo.
+app.get('/api/diag', async (req, res) => {
+  try {
+    const r = await ai.models.generateContent({
+      model: TEXT_MODEL,
+      contents: [{ role: 'user', parts: [{ text: 'ping' }] }],
+    });
+    const text = r?.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || '';
+    res.json({ ok: true, text: text.slice(0, 80) });
+  } catch (e) {
+    res.json({ ok: false, error: String(e?.message || e).slice(0, 500) });
+  }
+});
 
 app.get('/health', (req, res) => res.json({
   ok: true,
