@@ -97,6 +97,17 @@ app.get('/api/diag', async (req, res) => {
   } catch (e) {
     out.tokenMint = { ok: false, error: String(e?.message || e).slice(0, 300) };
   }
+  // (1b) fetch RAW a Vertex col token mintato (bypassa l'SDK)
+  try {
+    const { GoogleAuth } = await import('google-auth-library');
+    const ga = new GoogleAuth({ credentials: googleAuthOptions?.credentials, scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
+    const tok = (await (await ga.getClient()).getAccessToken()).token;
+    const url = `https://${LOCATION}-aiplatform.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/publishers/google/models/${TEXT_MODEL}:generateContent`;
+    const r = await fetch(url, { method: 'POST', headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'ping' }] }] }) });
+    out.rawFetch = { status: r.status, body: (await r.text()).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 160) };
+  } catch (e) {
+    out.rawFetch = { error: String(e?.message || e).slice(0, 200) };
+  }
   // (2) generateContent via SDK
   try {
     const r = await ai.models.generateContent({
