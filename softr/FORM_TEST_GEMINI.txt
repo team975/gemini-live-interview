@@ -28,7 +28,7 @@ const fields = q.select({
 // Page 2 "controlla email" (pubblica) — dopo il submit reindirizziamo qui.
 const CHECK_EMAIL_URL = "https://yajaira65701.softr.app/daticustom-test-gemini";
 // Endpoint server: valida dominio @sharazad.com e invia la mail col link intervista.
-const AUTH_REQUEST_URL = "https://gemini-live-interview.onrender.com/api/auth-request";
+const AUTH_REQUEST_URL = "https://gemini-live-interview-526065276996.europe-west1.run.app/api/auth-request";
 
 export default function Block() {
   const title = useTextSetting({
@@ -103,7 +103,7 @@ export default function Block() {
         <div className="container relative z-10 py-16">
           <div className="content max-w-3xl mx-auto">
             <div className="bg-white border rounded-2xl p-8 lg:p-10" style={{ borderColor: "rgba(0,0,0,0.08)", boxShadow: "0 4px 16px rgba(0,0,0,0.06)" }}>
-              <img src="https://gemini-live-interview.onrender.com/sharazad-logo.png" alt="Sharazad" style={{ height: "38px", width: "auto", marginBottom: "20px" }} />
+              <img src="https://gemini-live-interview-526065276996.europe-west1.run.app/sharazad-logo.png" alt="Sharazad" style={{ height: "38px", width: "auto", marginBottom: "20px" }} />
               <div className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-sm mb-6" style={{ backgroundColor: "rgba(84,81,208,0.1)", color: "#4340a8", fontWeight: 600 }}>
                 <DynamicIcon name="sparkles" className="w-5 h-5" />
                 Intervista AI · Gemini Live

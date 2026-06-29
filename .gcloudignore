@@ -1,0 +1,12 @@
+node_modules
+dist
+.git
+.env
+.env.*
+*.log
+chiave progetto*.json
+*console.json
+*service-account*.json
+eastern-map-*.json
+~
+docs

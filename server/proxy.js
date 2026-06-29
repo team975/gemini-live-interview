@@ -35,10 +35,8 @@ if (process.env.GOOGLE_SA_JSON) {
     const cred = JSON.parse(process.env.GOOGLE_SA_JSON);
     googleAuthOptions = { credentials: cred };
     const pk = cred.private_key || '';
-    console.log('[proxy] auth: service account da GOOGLE_SA_JSON');
-    console.log('[proxy][diag] SA email=%s | pk len=%d | pk has real newlines=%s | starts=%s | ends=%s',
-      cred.client_email, pk.length, /\n/.test(pk),
-      JSON.stringify(pk.slice(0, 28)), JSON.stringify(pk.slice(-28)));
+    console.log('[proxy] auth: service account da GOOGLE_SA_JSON (%s)', cred.client_email);
+    void pk;
   } catch (e) {
     console.error('[proxy] GOOGLE_SA_JSON non e\' JSON valido:', e.message);
     process.exit(1);
@@ -79,47 +77,6 @@ app.use('/api', (req, res, next) => {
 
 const server = createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
-
-// Diagnostica: (1) mint token SA esplicito (isola rete OAuth), (2) generateContent.
-app.get('/api/diag', async (req, res) => {
-  const out = {};
-  // (1) token mint diretto via google-auth-library
-  try {
-    const { GoogleAuth } = await import('google-auth-library');
-    const ga = new GoogleAuth({
-      credentials: googleAuthOptions?.credentials,
-      scopes: ['https://www.googleapis.com/auth/cloud-platform'],
-    });
-    const t0 = Date.now();
-    const client = await ga.getClient();
-    const tok = await client.getAccessToken();
-    out.tokenMint = { ok: true, len: (tok?.token || '').length, ms: Date.now() - t0 };
-  } catch (e) {
-    out.tokenMint = { ok: false, error: String(e?.message || e).slice(0, 300) };
-  }
-  // (1b) fetch RAW a Vertex col token mintato (bypassa l'SDK)
-  try {
-    const { GoogleAuth } = await import('google-auth-library');
-    const ga = new GoogleAuth({ credentials: googleAuthOptions?.credentials, scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
-    const tok = (await (await ga.getClient()).getAccessToken()).token;
-    const url = `https://${LOCATION}-aiplatform.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/publishers/google/models/${TEXT_MODEL}:generateContent`;
-    const r = await fetch(url, { method: 'POST', headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'ping' }] }] }) });
-    out.rawFetch = { status: r.status, body: (await r.text()).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 160) };
-  } catch (e) {
-    out.rawFetch = { error: String(e?.message || e).slice(0, 200) };
-  }
-  // (2) generateContent via SDK
-  try {
-    const r = await ai.models.generateContent({
-      model: TEXT_MODEL,
-      contents: [{ role: 'user', parts: [{ text: 'ping' }] }],
-    });
-    out.generate = { ok: true, text: (r?.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || '').slice(0, 60) };
-  } catch (e) {
-    out.generate = { ok: false, error: String(e?.message || e).slice(0, 200) };
-  }
-  res.json(out);
-});
 
 app.get('/health', (req, res) => res.json({
   ok: true,
